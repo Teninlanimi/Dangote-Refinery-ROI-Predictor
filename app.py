@@ -62,6 +62,17 @@ def run_calculation(payload):
             **{k: round(v, 4) for k, v in model.roi(sc, horizon, model.DEFAULTS["fx_entry"], fx_dep).items()},
         }
 
+    # Same levers applied to every horizon, so the chart can show 1/2/3 years
+    fx_entry = model.DEFAULTS["fx_entry"]
+    horizons_view = {}
+    for h in (1, 2, 3):
+        per_h = {name: model.roi(sc, h, fx_entry, fx_dep) for name, sc in model.SCENARIOS.items()}
+        per_h["custom"] = model.roi(custom, h, fx_entry, fx_dep)
+        horizons_view[str(h)] = {
+            name: {"roi_ngn": round(v["roi_ngn"], 4), "roi_usd": round(v["roi_usd"], 4)}
+            for name, v in per_h.items()
+        }
+
     total_weight = sum(sc["weight"] for sc in model.SCENARIOS.values())
     expected_ngn = sum(model.SCENARIOS[n]["weight"] * p["roi_ngn"] for n, p in presets.items()) / total_weight
     expected_usd = sum(model.SCENARIOS[n]["weight"] * p["roi_usd"] for n, p in presets.items()) / total_weight
@@ -76,6 +87,7 @@ def run_calculation(payload):
             **{k: round(v, 4) for k, v in r_custom.items()},
         },
         "presets": presets,
+        "horizons": horizons_view,
         "expected": {
             "roi_ngn": round(expected_ngn, 4),
             "roi_usd": round(expected_usd, 4),

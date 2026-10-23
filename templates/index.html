@@ -92,6 +92,21 @@
       background: rgba(239,68,68,.1); border: 1px solid rgba(239,68,68,.35);
       padding: 12px 16px; border-radius: 10px;
     }
+    .chart-card { margin-top: 26px; border-top: 1px solid var(--panel-edge); padding-top: 16px; display: none; }
+    .chart-card h2 { font-size: .85rem; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; }
+    .chart-note { color: var(--muted); font-size: .78rem; margin-bottom: 12px; }
+    .hgrid { display: grid; grid-template-columns: 165px 1fr 1fr 1fr; gap: 3px 12px; align-items: center; }
+    .hgrid .hd { color: var(--muted); font-size: .75rem; text-align: center; text-transform: uppercase; letter-spacing: 1px; }
+    .series-label { font-size: .84rem; line-height: 1.25; }
+    .series-label b { color: var(--text); }
+    .series-label .cur { color: var(--muted); font-size: .72rem; }
+    .ccell { position: relative; height: 30px; }
+    .ccell .zero { position: absolute; top: 2px; bottom: 2px; left: 50%; width: 1px; background: #2a3550; }
+    .bar { position: absolute; top: 7px; height: 16px; border-radius: 3px; }
+    .bar.pos { background: var(--up); }
+    .bar.neg { background: var(--down); }
+    .bar.usd { opacity: .55; }
+    .bval { position: absolute; font-size: .68rem; color: var(--text); top: 50%; transform: translateY(-50%); white-space: nowrap; }
     .limits { margin-top: 26px; border-top: 1px solid var(--panel-edge); padding-top: 16px; }
     .limits summary { cursor: pointer; color: var(--muted); font-size: .85rem; text-transform: uppercase; letter-spacing: 1px; user-select: none; }
     .limits summary:hover { color: var(--text); }
@@ -171,6 +186,21 @@
         <tbody></tbody>
       </table>
       <p class="sub" style="color: var(--muted); font-size: .82rem; margin-top: 10px;" id="expected-line"></p>
+    </div>
+
+    <div class="chart-card" id="chart-card">
+      <h2>ROI by horizon — naira vs USD</h2>
+      <div class="chart-note">
+        Each row is a scenario (label shows currency); columns are the 1-, 2- and 3-year
+        hold. Bars grow right for gain, left for loss, from the centre zero line. Solid = naira,
+        translucent = USD (same levers for every cell).
+      </div>
+      <div class="hgrid" id="hgrid">
+        <div class="hd"></div>
+        <div class="hd">1 year</div>
+        <div class="hd">2 years</div>
+        <div class="hd">3 years</div>
+      </div>
     </div>
 
     <details class="limits">
@@ -286,6 +316,52 @@
         `Probability-weighted expected ROI: <b style="color:var(--text)">${fmtPct(e.roi_ngn)} in naira</b> (${fmtPct(e.roi_ngn_annualised)} annualised) · ${fmtPct(e.roi_usd)} in USD (${fmtPct(e.roi_usd_annualised)} annualised).`;
       $("expected-line").querySelectorAll("b").forEach(b => b.style.color = "var(--text)");
       resultEl.style.display = "block";
+      drawChart(d);
+    }
+
+    function drawChart(d) {
+      const SERIES = [
+        ["bull", "Bull", "cement-like execution"],
+        ["base", "Base", "H1 2026 run-rate"],
+        ["bear", "Bear", "sugar-like stress"],
+        ["custom", "Your levers", "as set above"],
+      ];
+      const CURRENCIES = [["roi_ngn", "₦"], ["roi_usd", "$"]];
+      const grid = $("hgrid");
+      // keep the 4 header cells, drop any old data rows
+      while (grid.children.length > 4) grid.removeChild(grid.lastChild);
+
+      let maxAbs = 0;
+      for (const h of ["1", "2", "3"])
+        for (const [key] of SERIES)
+          for (const [field] of CURRENCIES)
+            maxAbs = Math.max(maxAbs, Math.abs(d.horizons[h][key][field]));
+      if (!maxAbs) maxAbs = 1;
+
+      for (const [key, name, meta] of SERIES) {
+        for (const [field, cur] of CURRENCIES) {
+          const row = document.createElement("div");
+          row.className = "series-label";
+          row.innerHTML = `<b>${name}</b> ${cur}<div class="cur">${meta}</div>`;
+          grid.appendChild(row);
+
+          for (const h of ["1", "2", "3"]) {
+            const val = d.horizons[h][key][field];
+            const cell = document.createElement("div");
+            cell.className = "ccell";
+            cell.title = `${h}-year hold: ${fmtPct(val)} in ${cur === "₦" ? "naira" : "USD"}`;
+            const width = ((Math.abs(val) / maxAbs) * 46).toFixed(2); // % of half-track
+            const dark = Math.abs(val) / maxAbs > 0.82 ? "color:#0d1420;" : ""; // label sits on the bar tip
+            cell.innerHTML =
+              `<div class="zero"></div>` +
+              `<div class="bar ${val >= 0 ? "pos" : "neg"} ${field === "roi_usd" ? "usd" : ""}" ` +
+              `style="${val >= 0 ? "left" : "right"}:50%; width:${width}%;"></div>` +
+              `<div class="bval" style="${val >= 0 ? "right:6px" : "left:6px"};${dark}">${fmtPct(val)}</div>`;
+            grid.appendChild(cell);
+          }
+        }
+      }
+      $("chart-card").style.display = "block";
     }
 
     btn.addEventListener("click", calculate);

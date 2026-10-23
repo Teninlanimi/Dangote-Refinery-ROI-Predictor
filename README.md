@@ -66,6 +66,8 @@ py app.py              :: dashboard at http://127.0.0.1:5000
 The dashboard sliders: revenue ($bn), net margin (%), P/E (×), earnings
 growth (%/yr), naira depreciation (%/yr), dividend payout (%), and a 1- or
 3-year horizon — recomputing fair value and ROI live next to the three presets.
+Below the results, a diverging bar chart compares **naira vs USD ROI for every
+scenario across 1-, 2- and 3-year holds** on your current levers.
 
 ## Project layout
 
