@@ -2,4 +2,10 @@ __pycache__/
 *.pyc
 .DS_Store
 venv/
+.venv/
 .env
+instance/
+.pytest_cache/
+backups/
+Claude outputs/
+.vscode/

@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pipeline status — Dangote Refinery ROI Predictor</title>
+  <style>
+    :root { --bg:#0f1420; --panel:#1a2233; --panel-edge:#2a3550; --text:#e8edf7; --muted:#8b98b4; --up:#22c55e; --down:#ef4444; --warn:#f59e0b; --accent:#6366f1; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: "Segoe UI", system-ui, -apple-system, sans-serif; background: radial-gradient(1200px 800px at 80% -10%, #1c2742 0%, var(--bg) 55%); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 48px 16px; }
+    .card { width: 100%; max-width: 900px; background: var(--panel); border: 1px solid var(--panel-edge); border-radius: 16px; padding: 32px; box-shadow: 0 20px 60px rgba(0,0,0,.45); }
+    h1 { font-size: 1.4rem; margin-bottom: 4px; }
+    h2 { font-size: .82rem; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin: 26px 0 10px; }
+    .subtitle { color: var(--muted); font-size: .9rem; }
+    a { color: var(--accent); text-decoration: none; }
+    table { width: 100%; border-collapse: collapse; font-size: .83rem; }
+    th { text-align: left; color: var(--muted); font-weight: 600; padding: 8px 10px 8px 0; border-bottom: 1px solid var(--panel-edge); }
+    td { padding: 8px 10px 8px 0; border-bottom: 1px dashed #232d45; vertical-align: top; }
+    td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .tag { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: .72rem; font-weight: 700; text-transform: uppercase; }
+    .success, .pass { background: rgba(34,197,94,.15); color: var(--up); }
+    .partial, .warn, .running { background: rgba(245,158,11,.15); color: var(--warn); }
+    .failed, .fail { background: rgba(239,68,68,.15); color: var(--down); }
+    .muted { color: var(--muted); }
+    .error { margin-top: 18px; color: var(--down); background: rgba(239,68,68,.1); border: 1px solid rgba(239,68,68,.35); padding: 12px 16px; border-radius: 10px; }
+    .rules { color: var(--muted); font-size: .84rem; line-height: 1.6; }
+    .rules b { color: var(--text); }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+      <div>
+        <h1>Data pipeline status</h1>
+        <p class="subtitle">Crude and FX prices are pulled on a schedule, checked, then stored. Every run and every check is logged here.</p>
+      </div>
+      <a href="/" style="white-space:nowrap; border:1px solid var(--panel-edge); padding:6px 12px; border-radius:8px; font-size:.85rem;">← Predictor</a>
+    </div>
+
+    {% if error %}<div class="error">Database unreachable: {{ error }}</div>{% endif %}
+
+    <h2>Latest values</h2>
+    <table>
+      <tr><th>Series</th><th class="num">Value</th><th>Observed</th><th>Quality</th><th>Source</th></tr>
+      {% for key, label, fmt in [("brent", "Brent crude (USD/bbl)", "%.2f"), ("gasoline", "Petrol, NY Harbor (USD/gal)", "%.3f"), ("diesel", "ULS diesel, NY Harbor (USD/gal)", "%.3f"), ("usdngn", "USD/NGN", "%.2f")] %}
+        {% set row = snap[key] if snap else None %}
+        <tr>
+          <td>{{ label }}</td>
+          <td class="num">{{ fmt|format(row.value) if row else "—" }}</td>
+          <td>{{ row.date ~ " (" ~ row.age_days ~ "d ago)" if row else "—" }}</td>
+          <td>{% if row %}<span class="tag {{ 'pass' if row.quality == 'ok' else 'warn' }}">{{ row.quality }}</span>{% endif %}</td>
+          <td class="muted">{{ row.source if row else "" }}</td>
+        </tr>
+      {% endfor %}
+      {% if snap and snap.crack %}
+      <tr>
+        <td>3-2-1 crack spread (USD/bbl, derived)</td>
+        <td class="num">{{ "%.2f"|format(snap.crack.value) }}</td>
+        <td>{{ snap.crack.date }}</td>
+        <td></td>
+        <td class="muted">{% if snap.crack_reference %}H1 2026 avg {{ "%.2f"|format(snap.crack_reference.value) }} over {{ snap.crack_reference.days }} days{% else %}H1 2026 reference not available yet{% endif %}</td>
+      </tr>
+      {% endif %}
+    </table>
+
+    <h2>Recent runs</h2>
+    {% if runs %}
+    <table>
+      <tr><th>#</th><th>Started (UTC)</th><th>Status</th><th class="num">Rows added</th><th>Detail</th></tr>
+      {% for r in runs %}
+      <tr>
+        <td>{{ r.id }}</td>
+        <td>{{ r.started_at.strftime("%Y-%m-%d %H:%M") if r.started_at else "" }}</td>
+        <td><span class="tag {{ r.status }}">{{ r.status }}</span></td>
+        <td class="num">{{ r.rows_inserted }}</td>
+        <td class="muted">{{ r.message or "" }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% else %}<p class="muted">No runs yet.</p>{% endif %}
+
+    <h2>Data checks (latest first)</h2>
+    {% if checks %}
+    <table>
+      <tr><th>Run</th><th>Series</th><th>Check</th><th>Outcome</th><th>Detail</th></tr>
+      {% for c in checks %}
+      <tr>
+        <td>{{ c.run_id }}</td>
+        <td>{{ c.series }}</td>
+        <td>{{ c.check_name }}</td>
+        <td><span class="tag {{ c.outcome }}">{{ c.outcome }}</span></td>
+        <td class="muted">{{ c.detail }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% else %}<p class="muted">No checks logged yet.</p>{% endif %}
+
+    <h2>Check rules</h2>
+    <p class="rules">
+      <b>range</b> — Brent must sit between $10 and $250, petrol and diesel between $0.50 and $8 a gallon, USD/NGN between ₦300 and ₦5,000; anything outside is rejected and never reaches the model.
+      <b>jump</b> — a move over 15% (Brent), 20% (petrol, diesel) or 10% (naira) from the previous stored value is kept but flagged.
+      <b>freshness</b> — flagged if the newest oil-market price is over 7 days old or the newest FX rate over 4 days old.
+      <b>fetch</b> — the source could not be reached or returned nothing.
+    </p>
+    <p class="rules" style="margin-top:10px">Sources: Brent, petrol and diesel spot prices from <a href="https://fred.stlouisfed.org/series/DCOILBRENTEU">FRED (US EIA data)</a>; USD/NGN from <a href="https://www.exchangerate-api.com">Rates By Exchange Rate API</a>.</p>
+  </div>
+</body>
+</html>

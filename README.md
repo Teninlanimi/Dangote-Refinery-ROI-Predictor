@@ -6,6 +6,11 @@ NGX, offer open 14 Sep – 27 Oct 2026) — built from the audited FY2025 number
 of its sister companies, **Dangote Cement** and **Dangote Sugar**, plus the
 refinery's own H1 2026 results.
 
+**Now a production data product:** crude oil, petrol and diesel prices and
+the naira exchange rate are pulled on a schedule, validated, stored in PostgreSQL, and fed into
+the model; the whole stack runs in Docker on AWS
+([deploy guide](deploy/AWS_DEPLOY.md)).
+
 Companion project to [`Fake-News-`](https://github.com/Teninlanimi/Fake-News-)
 (same structure: transparent Python engine + Flask dashboard + About page).
 
@@ -53,15 +58,80 @@ roi               = (exit value + dividends − ₦525) ÷ ₦525        (in nai
 expected ROI      = Σ weight × scenario ROI
 ```
 
-## Run it
+## Live data pipeline
 
-```bat
-py model.py            :: scenario report + sensitivity grid -> outputs/
-py app.py              :: dashboard at http://127.0.0.1:5000
+```
+FRED: Brent, petrol, diesel ─┐                     ┌──> market_observations
+                             ├─> fetch ─> checks ──┤──> ingestion_runs
+open.er-api: USD/NGN ────────┘   (scheduler,       └──> check_results
+                                  06:05 & 18:05 UTC)          │
+                                                              ▼
+                                  3-2-1 crack spread ─> ROI model in live mode
 ```
 
-(or double-click `run_app.bat`). Requires Python 3.10+ and Flask
-(`py -m pip install -r requirements.txt`).
+**How live data changes the model** (toggle on the dashboard):
+
+1. **Exchange rate.** Exit value in naira is projected from *today's* USD/NGN
+   instead of the prospectus rate (₦1,312.5). Your entry cost stays ₦525 at the
+   offer rate, so naira weakness since the offer shows up in naira ROI.
+2. **Crude.** Revenue is scaled by *latest Brent ÷ average Brent over H1 2026*,
+   the half-year the $28.8bn run-rate comes from. Net margin stays a % of
+   revenue. The H1 2026 average is computed from the stored history, not typed in.
+3. **Crack spread → margin.** A refinery earns the gap between product prices
+   and crude, not the crude price. The pipeline computes the industry-standard
+   **3-2-1 crack spread** daily: (2 barrels of petrol + 1 barrel of diesel − 3
+   barrels of Brent) ÷ 3, using New York Harbor spot prices. Net margin then
+   moves with *today's spread ÷ its H1 2026 average*, using only the refinery's
+   reported H1 2026 figures (annualised):
+
+   ```
+   gross profit  $5.2bn  x spread ratio       (refining margin scales with the spread)
+   other costs   $1.6bn  held fixed            (= gross profit − net income: opex, interest, tax)
+   live margin = (5.2 x spread ratio − 1.6) ÷ (28.8 x crude factor)
+   shift       = live margin − 12.5%           applied to every scenario, capped at ±10 pts
+   ```
+
+   So dearer crude with an unchanged spread *lowers* the margin % and leaves
+   profit roughly flat, while a wider spread lifts profit. Using the ratio
+   rather than the level means the gap between New York Harbor and West
+   African prices largely cancels out.
+
+**Data checks** run before anything is stored: values outside a plausible
+band are rejected (`range`), large day-to-day moves are stored but flagged
+(`jump`), stale sources are flagged (`freshness`), and source outages are
+logged (`fetch`). One failing source never blocks the other. Every run and
+check is visible at `/status`.
+
+| Endpoint | What it returns |
+|---|---|
+| `/` | dashboard (live panel + levers) |
+| `/status` | pipeline runs and data-check outcomes |
+| `/api/market?days=180` | latest values + history as JSON |
+| `/health` | app + database + data freshness (used by Docker) |
+| `POST /admin/ingest` | run the pipeline now (needs `X-Ingest-Token`) |
+
+## Run it locally
+
+```bat
+py -m pip install -r requirements-dev.txt
+copy .env.example .env      :: then paste your free FRED_API_KEY into .env
+py -m pipeline.ingest       :: pull crude + FX into instance\market.db (or run_ingest.bat)
+py app.py                   :: dashboard at http://127.0.0.1:5000 (or run_app.bat)
+py -m pytest -q             :: 24 tests: checks, sources, pipeline, crack spread, app
+py model.py                 :: offline scenario report + sensitivity grid -> outputs/
+```
+
+Locally the database is a SQLite file; in production it is PostgreSQL. Only
+`DATABASE_URL` changes. Without any data the app still works in static mode
+(offer-date figures), exactly as before.
+
+## Deploy
+
+`docker compose up -d --build` starts PostgreSQL, the web app, the scheduler
+and Caddy (HTTPS). Step-by-step AWS EC2 instructions, including costs, HTTPS
+and backups: **[deploy/AWS_DEPLOY.md](deploy/AWS_DEPLOY.md)**. CI (GitHub
+Actions) runs the tests on SQLite and PostgreSQL and builds the Docker image on
+every push.
 
 The dashboard sliders: revenue ($bn), net margin (%), P/E (×), earnings
 growth (%/yr), naira depreciation (%/yr), dividend payout (%), and a 1- or
@@ -74,7 +144,17 @@ scenario across 1-, 2- and 3-year holds** on your current levers.
 ```
 data/company_data.py    all verified facts + source URLs (the single source of truth)
 model.py                scenario engine, sensitivity grid, markdown report
-app.py + templates/     Flask dashboard
+app.py + templates/     Flask dashboard, /status page, JSON API, health check
+config.py               settings from environment variables / .env
+pipeline/
+  sources.py            fetchers: FRED (Brent, petrol, diesel), open.er-api (USD/NGN)
+  checks.py             range / jump / freshness rules
+  ingest.py             one run: fetch -> check -> store -> log
+  scheduler.py          runs ingest on a schedule (separate process)
+  market.py             read helpers: latest, history, crude factor, crack spread, FX trend
+  db.py                 SQLAlchemy tables (SQLite locally, PostgreSQL in prod)
+tests/                  pytest suite (no network needed)
+Dockerfile, docker-compose.yml, deploy/   production stack + AWS guide
 outputs/                generated: scenario_report.md, sensitivity_pe_margin.csv
 ```
 
@@ -84,10 +164,25 @@ outputs/                generated: scenario_report.md, sensitivity_pe_margin.csv
 - No tax, crude-supply, petchem-segment, or cash-remittance modelling
 - The "dividends in dollars" promise is still pending formal sign-off
 - Linear margin×P/E ladder — markets don't behave linearly
+- The crack spread uses US (New York Harbor) product prices as a proxy for the
+  Atlantic-basin market Dangote sells into, and a 3-2-1 yield, not Dangote's
+  actual product slate (which also includes jet fuel, LPG and polypropylene)
+- It assumes gross profit moves in proportion to the spread and other costs stay
+  fixed in dollars; Nigerian pump-price pressure on how much of the spread
+  Dangote keeps is not modelled
+- The free FX feed is a market mid-rate; Nigeria's official and parallel rates
+  can differ, and it has no history, so FX history builds up from the first run
 - **Educational scenario analysis, not investment advice.** Read the
   [prospectus](https://ipo.dangote.com/) before you commit money.
 
 ## Sources
+
+Live data (US EIA spot prices via FRED): [Brent crude (DCOILBRENTEU)](https://fred.stlouisfed.org/series/DCOILBRENTEU) ·
+[NY Harbor conventional petrol (DGASNYH)](https://fred.stlouisfed.org/series/DGASNYH) ·
+[NY Harbor ultra-low-sulfur diesel (DDFUELNYH)](https://fred.stlouisfed.org/series/DDFUELNYH) ·
+[Rates By Exchange Rate API](https://www.exchangerate-api.com)
+
+Company data:
 
 - [Daba Research — live, verified IPO tracker (13 Oct 2026)](https://dabafinance.com/en/dangote-ipo)
 - [Reuters — SEC approves ~$1.6bn IPO](https://www.reuters.com/business/energy/nigerias-dangote-refinery-ipo-raise-between-155-18-bln-sources-2026-09-04/)
