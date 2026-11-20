@@ -1,0 +1,6 @@
+# DOMAIN=":80"          -> plain HTTP on the server's IP
+# DOMAIN="example.com"  -> Caddy gets and renews a Let's Encrypt certificate
+{$DOMAIN} {
+	encode gzip
+	reverse_proxy web:8000
+}

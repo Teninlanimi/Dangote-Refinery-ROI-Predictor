@@ -83,11 +83,16 @@ ENTRY_MARKET_CAP_USD = D.entry_market_cap_usd_bn()   # ~$48.1bn
 # ---------------------------------------------------------------------------
 # Core maths
 # ---------------------------------------------------------------------------
-def fair_price(scenario: dict, horizon: int, fx: float, fx_dep: float) -> dict:
-    """Fair value per share at the end of `horizon` years, plus dividends."""
+def fair_price(scenario: dict, horizon: int, fx: float, fx_dep: float,
+               fx_now: float = None) -> dict:
+    """Fair value per share at the end of `horizon` years, plus dividends.
+
+    `fx` is the rate at entry (the prospectus rate). `fx_now`, if given, is
+    today's live USD/NGN and becomes the starting point for the exit rate.
+    """
     ni_1 = scenario["revenue_usd_bn"] * scenario["net_margin"]          # $bn, year 1
     shares = D.TOTAL_SHARES_BN
-    fx_exit = fx * (1 + fx_dep) ** horizon
+    fx_exit = (fx_now or fx) * (1 + fx_dep) ** horizon
 
     fair_mcap_1 = ni_1 * scenario["pe"]                                 # $bn
     price_1 = fair_mcap_1 / shares                                      # $/share
@@ -117,9 +122,10 @@ def fair_price(scenario: dict, horizon: int, fx: float, fx_dep: float) -> dict:
     }
 
 
-def roi(scenario: dict, horizon: int, fx: float, fx_dep: float) -> dict:
+def roi(scenario: dict, horizon: int, fx: float, fx_dep: float,
+        fx_now: float = None) -> dict:
     """Naira and USD return on investment at the given horizon."""
-    f = fair_price(scenario, horizon, fx, fx_dep)
+    f = fair_price(scenario, horizon, fx, fx_dep, fx_now)
     exit_ngn = f["fair_price_ngn"]
     exit_usd = f["fair_price_usd"] + f["dividends_usd_per_share"]
     entry_usd = ENTRY_PRICE / fx
@@ -139,9 +145,62 @@ def roi(scenario: dict, horizon: int, fx: float, fx_dep: float) -> dict:
     }
 
 
-def expected_roi(horizon: int, fx: float, fx_dep: float) -> dict:
+# ---------------------------------------------------------------------------
+# Live market adjustments (inputs come from pipeline/market.py)
+# ---------------------------------------------------------------------------
+MAX_MARGIN_SHIFT = 0.10   # never move a scenario's net margin more than 10 points
+
+
+def crack_margin_shift(spread_ratio: float, crude_factor: float = None) -> float:
+    """How many percentage points of net margin today's crack spread adds or removes.
+
+    Built only from the refinery's reported H1 2026 figures (annualised):
+      revenue $28.8bn, gross profit $5.2bn, net income $3.6bn.
+
+      gross profit  ~ barrels x crack spread  -> scales with spread_ratio
+                      (latest 3-2-1 spread / its H1 2026 average)
+      other costs   = gross profit - net income = $1.6bn (opex, interest, tax),
+                      held fixed in dollars
+      revenue       scales with Brent (crude_factor)
+
+      live margin   = (5.2 x spread_ratio - 1.6) / (28.8 x crude_factor)
+      shift         = live margin - H1 2026 margin (12.5%)
+
+    So dearer crude with an unchanged spread LOWERS the margin %, leaving
+    profit roughly flat - which is how refining actually works.
+    """
+    if not spread_ratio:
+        return 0.0
+    r = D.REFINERY
+    rev_ref = r["annualised_revenue_usd_bn"]
+    gp_ref = r["h1_2026_gross_profit_usd_bn"] * 2
+    ni_ref = r["annualised_net_income_usd_bn"]
+    other_costs = gp_ref - ni_ref
+    ni_live = gp_ref * spread_ratio - other_costs
+    rev_live = rev_ref * (crude_factor or 1.0)
+    shift = ni_live / rev_live - ni_ref / rev_ref
+    return max(-MAX_MARGIN_SHIFT, min(MAX_MARGIN_SHIFT, shift))
+
+
+def with_market(scenario: dict, crude_factor: float = None, margin_shift: float = 0.0) -> dict:
+    """Copy of a scenario adjusted for live Brent (revenue) and crack spread (margin)."""
+    if not crude_factor and not margin_shift:
+        return scenario
+    return dict(scenario,
+                revenue_usd_bn=scenario["revenue_usd_bn"] * (crude_factor or 1.0),
+                net_margin=scenario["net_margin"] + (margin_shift or 0.0))
+
+
+def with_crude(scenario: dict, crude_factor: float = None) -> dict:
+    """Revenue-only adjustment (kept for backwards compatibility)."""
+    return with_market(scenario, crude_factor, 0.0)
+
+
+def expected_roi(horizon: int, fx: float, fx_dep: float, fx_now: float = None,
+                 crude_factor: float = None, margin_shift: float = 0.0) -> dict:
     """Probability-weighted ROI across the three preset scenarios."""
-    rois = {name: roi(sc, horizon, fx, fx_dep) for name, sc in SCENARIOS.items()}
+    rois = {name: roi(with_market(sc, crude_factor, margin_shift), horizon, fx, fx_dep, fx_now)
+            for name, sc in SCENARIOS.items()}
     total_w = sum(SCENARIOS[n]["weight"] for n in rois)
     exp_ngn = sum(SCENARIOS[n]["weight"] * r["roi_ngn"] for n, r in rois.items()) / total_w
     exp_usd = sum(SCENARIOS[n]["weight"] * r["roi_usd"] for n, r in rois.items()) / total_w

@@ -1,0 +1,62 @@
+# Production stack for one small server (AWS EC2):
+#   db         PostgreSQL 16 - price history, run log, data-check results
+#   web        Flask app under gunicorn
+#   scheduler  pulls crude + FX on a schedule (same image, different command)
+#   caddy      public entry point on ports 80/443, automatic HTTPS when DOMAIN is set
+#
+#   docker compose up -d --build      start / redeploy
+#   docker compose logs -f scheduler  watch the pipeline
+
+x-app: &app
+  build: .
+  image: dangote-roi:latest
+  restart: unless-stopped
+  env_file: .env
+  environment:
+    DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+  depends_on:
+    db:
+      condition: service_healthy
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  web:
+    <<: *app
+
+  scheduler:
+    <<: *app
+    command: ["python", "-m", "pipeline.scheduler"]
+    healthcheck:
+      disable: true
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:-:80}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    depends_on:
+      - web
+
+volumes:
+  pgdata:
+  caddy_data:

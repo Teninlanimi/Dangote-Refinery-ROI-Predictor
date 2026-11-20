@@ -111,6 +111,22 @@
     .limits summary { cursor: pointer; color: var(--muted); font-size: .85rem; text-transform: uppercase; letter-spacing: 1px; user-select: none; }
     .limits summary:hover { color: var(--text); }
     .limits p { color: var(--muted); font-size: .85rem; line-height: 1.6; margin-top: 10px; }
+    .live { margin-bottom: 18px; border: 1px solid var(--panel-edge); border-radius: 10px; padding: 14px 16px; background: #121a2b; }
+    .live-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+    .live-head h2 { font-size: .8rem; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
+    .live-head a { color: var(--accent); font-size: .8rem; text-decoration: none; }
+    .live-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+    @media (max-width: 760px) { .live-grid { grid-template-columns: 1fr 1fr; } }
+    .stat .k { color: var(--muted); font-size: .74rem; }
+    .stat .v { font-size: 1.15rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .stat .d { color: var(--muted); font-size: .72rem; }
+    .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+    .dot.ok { background: var(--up); } .dot.warn { background: #f59e0b; } .dot.bad { background: var(--down); }
+    .toggle { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: .84rem; color: var(--muted); }
+    .toggle input { accent-color: var(--accent); width: 16px; height: 16px; }
+    .linkbtn { background: none; border: none; color: var(--accent); cursor: pointer; font: inherit; font-size: .74rem; padding: 0; }
+    .live-note { color: var(--muted); font-size: .8rem; margin-top: 8px; }
+    @media (max-width: 600px) { .controls { grid-template-columns: 1fr; } }
     footer { margin-top: 20px; color: var(--muted); font-size: .8rem; text-align: center; }
     footer a { color: var(--accent); text-decoration: none; }
   </style>
@@ -122,7 +138,7 @@
         <h1>⛽ Dangote Refinery IPO — ROI Predictor</h1>
         <p class="subtitle">
           Entry <b>₦525/share</b> · implied market cap
-          <b>₦{{ entry_market_cap_ngn_trn }}tn (~${{ entry_market_cap_usd_bn }}bn)</b> ·
+          <b>₦{{ context.entry_market_cap_ngn_trn }}tn (~${{ context.entry_market_cap_usd_bn }}bn)</b> ·
           650,000 bpd, Lekki. Scenarios built from <b>Dangote Cement</b> &amp; <b>Dangote Sugar</b> FY2025 data.
         </p>
       </div>
@@ -135,13 +151,60 @@
       {{ context.cement_pe }}× P/E. Move the levers below to stress-test that price.
     </div>
 
+    <div class="live">
+      <div class="live-head">
+        <h2>
+          {% set lr = live.last_run if live else None %}
+          <span class="dot {{ 'ok' if lr and lr.status == 'success' else ('warn' if lr and lr.status == 'partial' else 'bad') }}"></span>
+          Live market data
+        </h2>
+        <a href="/status">Pipeline status →</a>
+      </div>
+      {% if live and (live.available.fx or live.brent) %}
+      <div class="live-grid">
+        <div class="stat">
+          <div class="k">Brent crude</div>
+          <div class="v">{% if live.brent %}${{ "%.2f"|format(live.brent.value) }}{% else %}—{% endif %}</div>
+          <div class="d">{% if live.brent %}{{ live.brent.date }}{% if live.brent.quality == 'warn' %} · ⚠ flagged{% endif %}{% else %}no data{% endif %}</div>
+        </div>
+        <div class="stat">
+          <div class="k">USD / NGN</div>
+          <div class="v">{% if live.usdngn %}₦{{ "{:,.1f}".format(live.usdngn.value) }}{% else %}—{% endif %}</div>
+          <div class="d">{% if live.usdngn %}{{ live.usdngn.date }} · offer priced at ₦1,312.5{% else %}no data{% endif %}</div>
+        </div>
+        <div class="stat">
+          <div class="k">Crude factor on revenue</div>
+          <div class="v">{% if live.crude_factor %}×{{ "%.3f"|format(live.crude_factor) }}{% else %}—{% endif %}</div>
+          <div class="d">{% if live.brent_reference %}vs H1 2026 avg ${{ "%.2f"|format(live.brent_reference.value) }}{% else %}needs H1 2026 Brent history{% endif %}</div>
+        </div>
+        <div class="stat">
+          <div class="k">3-2-1 crack spread</div>
+          <div class="v">{% if live.crack %}${{ "%.2f"|format(live.crack.value) }}<span style="font-size:.7rem;font-weight:400;color:var(--muted)">/bbl</span>{% else %}—{% endif %}</div>
+          <div class="d">{% if live.crack and live.crack_reference %}vs H1 2026 avg ${{ "%.2f"|format(live.crack_reference.value) }}{% elif live.crack %}{{ live.crack.date }} · needs H1 2026 history{% else %}needs petrol + diesel prices{% endif %}</div>
+        </div>
+      </div>
+      {% if live.fx_trend and live.fx_trend.annualised is not none %}
+      <div class="live-note">
+        Observed naira trend: <b style="color:var(--text)">{{ "%.1f"|format(live.fx_trend.annualised * 100) }}%/yr</b>
+        over {{ live.fx_trend.span_days }} days of stored rates.
+        <button class="linkbtn" id="apply-trend" data-v="{{ '%.1f'|format(live.fx_trend.annualised * 100) }}">Use it for the depreciation lever</button>
+      </div>
+      {% endif %}
+      <div class="live-note" style="font-size:.72rem">Brent, petrol (<a href="https://fred.stlouisfed.org/series/DGASNYH" style="color:var(--accent)">DGASNYH</a>), diesel (<a href="https://fred.stlouisfed.org/series/DDFUELNYH" style="color:var(--accent)">DDFUELNYH</a>): <a href="https://fred.stlouisfed.org/series/DCOILBRENTEU" style="color:var(--accent)">FRED / US EIA</a> · FX: <a href="https://www.exchangerate-api.com" style="color:var(--accent)">Rates By Exchange Rate API</a></div>
+      <label class="toggle"><input type="checkbox" id="use-live" checked> Use live data (exit FX starts at today's rate, revenue moves with Brent, margin moves with the crack spread)</label>
+      {% else %}
+      <div class="live-note">No live data yet. The scheduler fills this in; locally run <code>py -m pipeline.ingest</code>. The model below uses the offer-date figures.</div>
+      <input type="checkbox" id="use-live" style="display:none">
+      {% endif %}
+    </div>
+
     <div class="controls">
       <div class="ctrl">
-        <label>Refinery revenue ($bn/yr) <b id="v-rev"></b></label>
+        <label>Refinery revenue ($bn/yr, at H1 2026 crude) <b id="v-rev"></b></label>
         <input type="range" id="rev" min="20" max="40" step="0.4" value="28.8">
       </div>
       <div class="ctrl">
-        <label>Net margin (%) <b id="v-margin"></b></label>
+        <label>Net margin (%, at H1 2026 crack spread) <b id="v-margin"></b></label>
         <input type="range" id="margin" min="-2" max="24" step="0.5" value="12">
       </div>
       <div class="ctrl">
@@ -186,6 +249,7 @@
         <tbody></tbody>
       </table>
       <p class="sub" style="color: var(--muted); font-size: .82rem; margin-top: 10px;" id="expected-line"></p>
+      <p class="sub" style="color: var(--muted); font-size: .78rem; margin-top: 6px;" id="live-line"></p>
     </div>
 
     <div class="chart-card" id="chart-card">
@@ -219,6 +283,7 @@
   <footer>
     Educational project — scenario model, not investment advice.
     <a href="/about">About</a> ·
+    <a href="/status">Pipeline status</a> ·
     <a href="/health">/health</a>
   </footer>
 
@@ -264,6 +329,7 @@
             fx_dep: +$("fx").value,
             payout: +$("payout").value,
             horizon,
+            use_live: $("use-live").checked,
           }),
         });
         const data = await res.json();
@@ -315,6 +381,14 @@
       $("expected-line").innerHTML =
         `Probability-weighted expected ROI: <b style="color:var(--text)">${fmtPct(e.roi_ngn)} in naira</b> (${fmtPct(e.roi_ngn_annualised)} annualised) · ${fmtPct(e.roi_usd)} in USD (${fmtPct(e.roi_usd_annualised)} annualised).`;
       $("expected-line").querySelectorAll("b").forEach(b => b.style.color = "var(--text)");
+      const L = d.live || {};
+      const bits = [];
+      if (L.crude_factor) bits.push(`revenue ×${L.crude_factor.toFixed(3)} (Brent $${L.brent} on ${L.brent_date} vs $${L.brent_reference} H1 2026 average)`);
+      if (L.margin_shift !== null && L.margin_shift !== undefined) bits.push(`net margin ${L.margin_shift >= 0 ? "+" : ""}${(L.margin_shift * 100).toFixed(1)} pts (3-2-1 crack $${L.crack}/bbl vs $${L.crack_reference} H1 2026 average)`);
+      if (L.fx_now) bits.push(`exit FX starts at ₦${L.fx_now.toLocaleString("en-NG")} (${L.fx_date}) instead of ₦1,312.5`);
+      $("live-line").textContent = L.mode === "live"
+        ? "Live mode: " + bits.join(" · ") + "."
+        : "Static mode: offer-date figures (₦1,312.5/USD, H1 2026 revenue and margin).";
       resultEl.style.display = "block";
       drawChart(d);
     }
@@ -363,6 +437,13 @@
       }
       $("chart-card").style.display = "block";
     }
+
+    const trendBtn = $("apply-trend");
+    if (trendBtn) trendBtn.onclick = () => {
+      const v = Math.min(20, Math.max(0, +trendBtn.dataset.v));
+      $("fx").value = (Math.round(v * 2) / 2).toString();
+      refreshLabels();
+    };
 
     btn.addEventListener("click", calculate);
     document.addEventListener("keydown", (e) => { if (e.key === "Enter") calculate(); });
