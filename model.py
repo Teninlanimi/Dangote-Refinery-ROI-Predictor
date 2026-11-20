@@ -46,7 +46,7 @@ DEFAULTS = {
 SCENARIOS = {
     "bull": {
         "label": "Bull: cement-like execution",
-        "anchor": "DANGOTE CEMENT FY25: 23.6% net margin, P/E 13.5x",
+        "anchor": "Dangote Cement FY25: 23.6% net margin, 13.5× P/E",
         "weight": 0.25,
         "revenue_usd_bn": 32.0,   # above run-rate: full 650k bpd + petchem
         "net_margin": 0.18,       # approaching DANGCEM's 23.6% over time
@@ -56,7 +56,7 @@ SCENARIOS = {
     },
     "base": {
         "label": "Base: H1 2026 run-rate holds",
-        "anchor": "REFINERY H1 2026: 12.5% net margin, $3.6bn annualised profit",
+        "anchor": "Refinery H1 2026: 12.5% net margin, $3.6bn annualised profit",
         "weight": 0.50,
         "revenue_usd_bn": 28.8,   # exactly 2x H1 2026
         "net_margin": 0.12,       # H1 2026 actual (12.5%) rounded down
@@ -66,7 +66,7 @@ SCENARIOS = {
     },
     "bear": {
         "label": "Bear: sugar-like margin stress",
-        "anchor": "DANGOTE SUGAR FY25: -7.7% net margin, N175bn finance costs",
+        "anchor": "Dangote Sugar FY25: −7.7% net margin, ₦175bn finance costs",
         "weight": 0.25,
         "revenue_usd_bn": 26.0,   # volumes/discounts pressure the top line
         "net_margin": 0.05,       # halfway to sugar's -7.7% reality

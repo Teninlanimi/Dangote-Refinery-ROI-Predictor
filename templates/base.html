@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Dangote Refinery IPO return estimator{% endblock %}</title>
+  <meta name="description" content="Scenario model for the Dangote Petroleum Refinery IPO at ₦525 a share, updated with live oil prices and the naira exchange rate.">
+  <link rel="preload" href="{{ url_for('static', filename='fonts/archivo-latin-wdth-normal.woff2') }}" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+</head>
+<body>
+  <header class="masthead">
+    <div class="masthead-inner">
+      <a class="wordmark" href="{{ url_for('index') }}">
+        <strong>Dangote Refinery IPO</strong>
+        <span>Return estimator</span>
+      </a>
+      <nav class="nav" aria-label="Main">
+        {% set here = request.endpoint %}
+        <a href="{{ url_for('index') }}" {% if here == 'index' %}aria-current="page"{% endif %}>Market</a>
+        <a href="{{ url_for('calculator') }}" {% if here == 'calculator' %}aria-current="page"{% endif %}>Estimate returns</a>
+        <a href="{{ url_for('status') }}" {% if here == 'status' %}aria-current="page"{% endif %}>Data pipeline</a>
+        <a href="{{ url_for('about') }}" {% if here == 'about' %}aria-current="page"{% endif %}>Method</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+      <span>Educational scenario model, not investment advice. Read the <a href="https://ipo.dangote.com/">prospectus</a> before you invest.</span>
+      <span>Oil prices: <a href="https://fred.stlouisfed.org/series/DCOILBRENTEU">US EIA via FRED</a>. Exchange rate: <a href="https://www.exchangerate-api.com">Rates By Exchange Rate API</a>.</span>
+    </div>
+  </footer>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

@@ -16,11 +16,16 @@ Run:  py app.py          (then open http://127.0.0.1:5000)
 Data: py -m pipeline.ingest   (pull crude + FX once)
 """
 
+import csv
 import hmac
+import io
 import logging
 from datetime import timedelta, timezone
 
-from flask import Flask, abort, jsonify, render_template, request
+from flask import Flask, Response, abort, jsonify, render_template, request
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 import config
 from data import company_data as D
@@ -29,6 +34,54 @@ from pipeline import db, ingest, market
 
 app = Flask(__name__)
 app.json.sort_keys = False   # keep bull / base / bear in model order
+
+# Behind Render / Caddy the visitor's address arrives in X-Forwarded-For.
+# Only trust that header when we know a proxy sets it (TRUST_PROXY=1),
+# otherwise anyone could fake an address to dodge the usage limits.
+if config.TRUST_PROXY:
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+
+# Usage limits per visitor address. Counters live in each server process's
+# memory: simple, free, and enough for a portfolio site (see README).
+limiter = Limiter(get_remote_address, app=app, storage_uri="memory://",
+                  default_limits=[], headers_enabled=True)
+
+SOURCES_NOTE = ("Brent, petrol, diesel: US EIA via FRED (DCOILBRENTEU, DGASNYH, DDFUELNYH). "
+                "Naira per dollar: Rates By Exchange Rate API (exchangerate-api.com). "
+                "3-2-1 crack spread computed by this site.")
+
+
+@app.errorhandler(429)
+def too_many_requests(err):
+    msg = ("Too many requests from your connection. The limit is "
+           f"{err.description}. Wait a little and try again.")
+    if request.path.startswith("/download/"):
+        return Response(msg + "\n", status=429, mimetype="text/plain")
+    return jsonify({"error": msg}), 429
+
+
+def csv_response(rows: list, columns: list, filename: str) -> Response:
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=columns, extrasaction="ignore", lineterminator="\n")
+    writer.writeheader()
+    for row in rows:
+        writer.writerow({k: ("" if row.get(k) is None else row[k]) for k in columns})
+    return Response(buf.getvalue(), mimetype="text/csv", headers={
+        "Content-Disposition": f'attachment; filename="{filename}"',
+        "X-Data-Sources": SOURCES_NOTE,
+        "Cache-Control": "public, max-age=900",
+    })
+
+
+@app.template_filter("signed_pct")
+def signed_pct(x, digits=1):
+    """+12.3% / −4.5% with a true minus sign."""
+    return ("+" if x >= 0 else "\u2212") + f"{abs(x) * 100:.{digits}f}%"
+
+
+@app.template_filter("signed")
+def signed(x, digits=1):
+    return ("+" if x >= 0 else "\u2212") + f"{abs(x):.{digits}f}"
 log = logging.getLogger("roi-app")
 
 try:
@@ -165,9 +218,45 @@ def static_context():
     }
 
 
+def market_view(snap):
+    """Pre-computed numbers for the Market page (keeps the template simple)."""
+    view = {"has_data": bool(snap and (snap["brent"] or snap["usdngn"])), "history": {}}
+    if not snap:
+        return view
+    fx_offer = model.DEFAULTS["fx_entry"]
+    if snap["brent"] and snap["brent_reference"]:
+        view["brent_vs_ref"] = snap["brent"]["value"] / snap["brent_reference"]["value"] - 1
+    if snap["crack"] and snap["crack_reference"]:
+        view["crack_vs_ref"] = snap["crack"]["value"] / snap["crack_reference"]["value"] - 1
+    if snap["usdngn"]:
+        view["fx_vs_offer"] = snap["usdngn"]["value"] / fx_offer - 1
+    if snap["available"].get("crack"):
+        view["margin_shift"] = model.crack_margin_shift(snap["spread_ratio"], snap["crude_factor"])
+    try:
+        today = db.utcnow().date()
+        with db.get_engine().connect() as conn:
+            view["history"] = {
+                "brent": market.history(conn, "brent_usd", 400),
+                "crack": market.crack_spreads(conn, today - timedelta(days=400), today),
+                "fx": market.history(conn, "usdngn", 400),
+            }
+    except Exception:
+        log.exception("could not read price history")
+    return view
+
+
 @app.route("/")
 def index():
-    return render_template("index.html", context=static_context(), live=safe_snapshot())
+    snap = safe_snapshot()
+    defaults = run_calculation({"horizon": 3, "use_live": True}, snap)
+    return render_template("market.html", context=static_context(), live=snap,
+                           view=market_view(snap), calc=defaults, fx_offer=model.DEFAULTS["fx_entry"])
+
+
+@app.route("/calculator")
+def calculator():
+    return render_template("calculator.html", context=static_context(), live=safe_snapshot(),
+                           limits=LIMITS)
 
 
 @app.route("/about")
@@ -176,6 +265,7 @@ def about():
 
 
 @app.route("/calculate", methods=["POST"])
+@limiter.limit("300 per minute")      # sliders send many small requests
 def calculate():
     payload = request.get_json(silent=True) or {}
     try:
@@ -185,6 +275,7 @@ def calculate():
 
 
 @app.route("/api/market")
+@limiter.limit("60 per hour")
 def api_market():
     """Latest values plus history, for charts or anyone who wants the data."""
     days = min(max(request.args.get("days", 180, type=int), 1), 3650)
@@ -207,7 +298,7 @@ def status():
     try:
         with db.get_engine().connect() as conn:
             runs = market.recent_runs(conn, 20)
-            checks = market.recent_checks(conn, 60)
+            checks = market.recent_checks(conn, 30)
         error = None
     except Exception as exc:
         runs, checks, error = [], [], str(exc)
@@ -215,7 +306,51 @@ def status():
                            snap=safe_snapshot(), error=error)
 
 
+@app.route("/download/prices.csv")
+@limiter.limit("30 per hour")
+def download_prices():
+    """Daily prices, all series side by side, plus the computed crack spread."""
+    try:
+        with db.get_engine().connect() as conn:
+            rows = market.export_prices(conn)
+    except Exception:
+        log.exception("price export failed")
+        return Response("Price data is unavailable right now. Try again later.\n",
+                        status=503, mimetype="text/plain")
+    cols = [c for c, _ in market.EXPORT_COLUMNS]
+    return csv_response(rows, cols, "dangote-roi-market-prices.csv")
+
+
+@app.route("/download/pipeline-runs.csv")
+@limiter.limit("30 per hour")
+def download_runs():
+    try:
+        with db.get_engine().connect() as conn:
+            rows = market.recent_runs(conn, 100000)
+    except Exception:
+        log.exception("runs export failed")
+        return Response("Pipeline data is unavailable right now. Try again later.\n",
+                        status=503, mimetype="text/plain")
+    cols = ["id", "started_at", "finished_at", "status", "rows_inserted", "message"]
+    return csv_response(rows, cols, "dangote-roi-pipeline-runs.csv")
+
+
+@app.route("/download/data-checks.csv")
+@limiter.limit("30 per hour")
+def download_checks():
+    try:
+        with db.get_engine().connect() as conn:
+            rows = market.recent_checks(conn, 100000)
+    except Exception:
+        log.exception("checks export failed")
+        return Response("Pipeline data is unavailable right now. Try again later.\n",
+                        status=503, mimetype="text/plain")
+    cols = ["id", "run_id", "checked_at", "series", "check_name", "outcome", "detail"]
+    return csv_response(rows, cols, "dangote-roi-data-checks.csv")
+
+
 @app.route("/admin/ingest", methods=["POST"])
+@limiter.limit("5 per hour")
 def admin_ingest():
     """Trigger a pipeline run by hand: header  X-Ingest-Token: <INGEST_TOKEN>."""
     token = request.headers.get("X-Ingest-Token", "")

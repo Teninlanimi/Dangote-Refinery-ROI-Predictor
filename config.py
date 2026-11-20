@@ -19,7 +19,16 @@ _DEFAULT_SQLITE = "sqlite:///" + os.path.join(BASE_DIR, "instance", "market.db")
 
 # SQLite locally, PostgreSQL in production, e.g.
 #   postgresql+psycopg://roi:password@db:5432/roi
-DATABASE_URL = os.getenv("DATABASE_URL", _DEFAULT_SQLITE)
+def _normalise_db_url(url: str) -> str:
+    """Accept the URLs hosting providers hand out (postgres://, postgresql://)
+    and point SQLAlchemy at the psycopg 3 driver we install."""
+    for prefix in ("postgres://", "postgresql://"):
+        if url.startswith(prefix):
+            return "postgresql+psycopg://" + url[len(prefix):]
+    return url
+
+
+DATABASE_URL = _normalise_db_url(os.getenv("DATABASE_URL", _DEFAULT_SQLITE).strip())
 
 # Free key from https://fred.stlouisfed.org/docs/api/api_key.html (Brent prices)
 FRED_API_KEY = os.getenv("FRED_API_KEY", "")
@@ -34,3 +43,7 @@ SCHEDULE_HOURS_UTC = os.getenv("SCHEDULE_HOURS_UTC", "6,18")
 BACKFILL_START = os.getenv("BACKFILL_START", "2026-01-01")
 
 HTTP_TIMEOUT_S = float(os.getenv("HTTP_TIMEOUT_S", "20"))
+
+# Set to 1 when the app runs behind a reverse proxy that sets X-Forwarded-For
+# (Render, Caddy). Leave at 0 locally.
+TRUST_PROXY = os.getenv("TRUST_PROXY", "0") == "1"

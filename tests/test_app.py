@@ -35,7 +35,7 @@ def test_pages_and_health(client, db_url, fake_fetchers):
     ingest.run(db_url, fake_fetchers, TODAY)
     h = client.get("/health").get_json()
     assert h["status"] == "ok" and h["database"] == "ok"
-    for path in ("/", "/about", "/status", "/api/market"):
+    for path in ("/", "/calculator", "/about", "/status", "/api/market"):
         assert client.get(path).status_code == 200, path
     assert b"1,450.0" in client.get("/").data
 
@@ -46,3 +46,16 @@ def test_admin_ingest_requires_token(client):
 
 def test_bad_input(client):
     assert client.post("/calculate", json={"pe": "abc"}).status_code == 400
+
+
+def test_market_page_without_data(client):
+    page = client.get("/").data.decode()
+    assert "No market data has been loaded yet" in page
+    assert "13.3 times" in page          # hero still works on offer-date figures
+
+
+def test_market_page_with_data(client, db_url, fake_fetchers):
+    ingest.run(db_url, fake_fetchers, TODAY)
+    page = client.get("/").data.decode()
+    assert "What today's market does to the model" in page
+    assert "chart-brent" in page and "chart-crack" in page

@@ -1,0 +1,184 @@
+{% extends "base.html" %}
+{% block title %}Market — Dangote Refinery IPO return estimator{% endblock %}
+
+{% macro sign_class(x) -%}{{ "gain" if x >= 0 else "loss" }}{%- endmacro %}
+
+{% block content %}
+{% set e = calc.expected %}
+<section class="hero">
+  <div>
+  <h1>At ₦525 a share, the offer values the refinery at {{ context.implied_entry_pe }} times its annualised profit.</h1>
+  <p class="lede">
+    Dangote Cement trades at {{ "%.1f"|format(context.cement_pe) }} times, so the price assumes cement-like
+    confidence in a business with one profitable half-year.
+    {% if calc.live.mode == "live" %}With today's oil prices and exchange rate{% else %}On the offer-date figures{% endif %},
+    the model's probability-weighted return over three years is
+    <strong class="{{ sign_class(e.roi_ngn) }}">{{ e.roi_ngn|signed_pct }} in naira</strong> and
+    <strong class="{{ sign_class(e.roi_usd) }}">{{ e.roi_usd|signed_pct }} in US dollars</strong>.
+  </p>
+  <div class="actions">
+    <a class="button" href="{{ url_for('calculator') }}">Estimate your own return</a>
+    <a href="{{ url_for('about') }}">How the model works</a>
+  </div>
+  </div>
+  <dl class="facts" aria-label="The offer">
+    <div><dt>Offer price</dt><dd>₦525 a share</dd></div>
+    <div><dt>Shares offered</dt><dd>4.1bn of 120.13bn</dd></div>
+    <div><dt>Implied market value</dt><dd>₦{{ context.entry_market_cap_ngn_trn }}tn (${{ context.entry_market_cap_usd_bn }}bn)</dd></div>
+    <div><dt>H1 2026 net income</dt><dd>$1.8bn</dd></div>
+    <div><dt>Listing</dt><dd>NGX, Nov–Dec 2026</dd></div>
+  </dl>
+</section>
+
+<section class="section" aria-labelledby="today">
+  <div class="section-head">
+    <h2 id="today">Today's market</h2>
+    {% if live and live.last_run and live.last_run.finished_at %}
+      {% set f = live.last_run.finished_at %}<p>Updated {{ f.day }} {{ f.strftime("%b %Y, %H:%M") }} UTC</p>
+    {% endif %}
+  </div>
+
+  {% if view.has_data %}
+  <div class="indicators">
+    <div class="indicator">
+      <h3>Brent crude</h3>
+      {% if live.brent %}
+        <div class="value">${{ "%.2f"|format(live.brent.value) }}<small>/bbl</small></div>
+        <p class="delta">
+          {% if view.brent_vs_ref is defined %}{{ "%.1f"|format(view.brent_vs_ref|abs * 100) }}% {{ "above" if view.brent_vs_ref >= 0 else "below" }} the H1 2026 average of ${{ "%.2f"|format(live.brent_reference.value) }}
+          {% else %}H1 2026 average not available yet{% endif %}
+        </p>
+        <p class="asof">{{ live.brent.date }}{% if live.brent.quality == "warn" %} <span class="flag">flagged by data checks</span>{% endif %}</p>
+        <div class="spark-slot" data-series="brent"></div>
+      {% else %}<div class="value">—</div><p class="delta">No price yet</p>{% endif %}
+    </div>
+
+    <div class="indicator">
+      <h3>Refining margin</h3>
+      {% if live.crack %}
+        <div class="value">${{ "%.2f"|format(live.crack.value) }}<small>/bbl</small></div>
+        <p class="delta">
+          {% if view.crack_vs_ref is defined %}{{ "%.1f"|format(view.crack_vs_ref|abs * 100) }}% {{ "wider" if view.crack_vs_ref >= 0 else "narrower" }} than the H1 2026 average of ${{ "%.2f"|format(live.crack_reference.value) }}
+          {% else %}H1 2026 average not available yet{% endif %}
+        </p>
+        <p class="asof">3-2-1 crack spread, {{ live.crack.date }}</p>
+        <div class="spark-slot" data-series="crack"></div>
+      {% else %}<div class="value">—</div><p class="delta">Needs Brent, petrol and diesel prices for the same day</p>{% endif %}
+    </div>
+
+    <div class="indicator">
+      <h3>Naira per US dollar</h3>
+      {% if live.usdngn %}
+        <div class="value">₦{{ "{:,.1f}".format(live.usdngn.value) }}</div>
+        <p class="delta">{{ "%.1f"|format(view.fx_vs_offer|abs * 100) }}% {{ "weaker" if view.fx_vs_offer >= 0 else "stronger" }} than the ₦{{ "{:,.1f}".format(fx_offer) }} rate the offer was priced at</p>
+        <p class="asof">{{ live.usdngn.date }}</p>
+        <div class="spark-slot" data-series="fx"></div>
+      {% else %}<div class="value">—</div><p class="delta">No rate yet</p>{% endif %}
+    </div>
+
+    <div class="indicator">
+      <h3>Data pipeline</h3>
+      {% set r = live.last_run %}
+      {% if r %}
+        <div class="value" style="font-size:1.35rem; margin-top:12px">
+          <span class="status-pill {{ r.status }}">{{ {"success": "Last run succeeded", "partial": "Last run partly failed", "failed": "Last run failed", "running": "Run in progress"}[r.status] }}</span>
+        </div>
+        <p class="delta">{{ r.rows_inserted }} new price{{ "" if r.rows_inserted == 1 else "s" }} saved</p>
+        <p class="asof"><a href="{{ url_for('status') }}">See every run and data check</a></p>
+      {% else %}<div class="value">—</div><p class="delta">No runs yet</p>{% endif %}
+    </div>
+  </div>
+  {% else %}
+  <div class="empty">
+    No market data has been loaded yet, so the figures above use the offer-date inputs.
+    The data pipeline fills this in on its next run; to load it now on your own computer, run
+    <code>py -m pipeline.ingest</code>.
+  </div>
+  {% endif %}
+</section>
+
+{% if view.has_data %}
+<section class="section" aria-labelledby="history">
+  <div class="section-head">
+    <h2 id="history">Price history</h2>
+    <p>Dashed line: the H1 2026 average the model compares against</p>
+  </div>
+  <div class="chart-grid">
+    <div class="chart-panel">
+      <h3>Brent crude</h3>
+      <p class="sub">US dollars per barrel, daily</p>
+      <div class="chart" id="chart-brent"></div>
+    </div>
+    <div class="chart-panel">
+      <h3>Refining margin</h3>
+      <p class="sub">3-2-1 crack spread, US dollars per barrel of crude</p>
+      <div class="chart" id="chart-crack"></div>
+    </div>
+  </div>
+  <div class="downloads">
+    <a class="button secondary" href="{{ url_for('download_prices') }}" download>Download all prices (CSV)</a>
+    <p>Every stored day: Brent, petrol, diesel, the 3-2-1 crack spread and the naira rate. Oil prices are US EIA data via FRED; credit Rates By Exchange Rate API if you reuse the naira rate.</p>
+  </div>
+</section>
+
+<section class="section" aria-labelledby="effects">
+  <div class="section-head">
+    <h2 id="effects">What today's market does to the model</h2>
+  </div>
+  <div class="table-panel">
+    <table>
+      <thead>
+        <tr><th>Input</th><th class="num">H1 2026 reference</th><th class="num">Latest</th><th>Effect in the model</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Brent crude</td>
+          <td class="num">{{ "$%.2f"|format(live.brent_reference.value) if live.brent_reference else "—" }}</td>
+          <td class="num">{{ "$%.2f"|format(live.brent.value) if live.brent else "—" }}</td>
+          <td>{% if live.crude_factor %}Revenue × {{ "%.3f"|format(live.crude_factor) }}{% else %}Revenue unchanged{% endif %}
+            <span class="meta">Product prices follow crude, so revenue does too</span></td>
+        </tr>
+        <tr>
+          <td>3-2-1 crack spread</td>
+          <td class="num">{{ "$%.2f"|format(live.crack_reference.value) if live.crack_reference else "—" }}</td>
+          <td class="num">{{ "$%.2f"|format(live.crack.value) if live.crack else "—" }}</td>
+          <td>{% if view.margin_shift is defined %}Net margin {{ (view.margin_shift * 100)|signed }} percentage points{% else %}Net margin unchanged{% endif %}
+            <span class="meta">The refinery earns the gap between product prices and crude</span></td>
+        </tr>
+        <tr>
+          <td>Naira per US dollar</td>
+          <td class="num">₦{{ "{:,.1f}".format(fx_offer) }} <span class="meta">offer rate</span></td>
+          <td class="num">{{ "₦{:,.1f}".format(live.usdngn.value) if live.usdngn else "—" }}</td>
+          <td>{% if live.usdngn %}Exit value converts from ₦{{ "{:,.0f}".format(live.usdngn.value) }} instead of ₦{{ "{:,.1f}".format(fx_offer) }}{% else %}Offer rate used{% endif %}
+            <span class="meta">Your ₦525 entry cost stays at the offer rate</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if view.has_data %}
+<script src="{{ url_for('static', filename='js/charts.js') }}"></script>
+<script>
+  const HISTORY = {{ view.history|tojson }};
+  const REF = {
+    brent: {{ (live.brent_reference.value if live.brent_reference else none)|tojson }},
+    crack: {{ (live.crack_reference.value if live.crack_reference else none)|tojson }},
+  };
+  const { lineChart, sparkline } = window.RoiCharts;
+  const refOpt = (v) => v ? { value: v, short: "H1 avg" } : null;
+  lineChart(document.getElementById("chart-brent"), HISTORY.brent || [],
+    { prefix: "$", ref: refOpt(REF.brent), label: "Brent crude price, US dollars per barrel" });
+  lineChart(document.getElementById("chart-crack"), HISTORY.crack || [],
+    { prefix: "$", ref: refOpt(REF.crack), label: "3-2-1 crack spread, US dollars per barrel",
+      empty: "Needs Brent, petrol and diesel prices for the same days." });
+  document.querySelectorAll(".spark-slot").forEach((slot) => {
+    const data = HISTORY[slot.dataset.series] || [];
+    sparkline(slot, data.slice(-90));
+  });
+</script>
+{% endif %}
+{% endblock %}

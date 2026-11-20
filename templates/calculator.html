@@ -1,0 +1,216 @@
+{% extends "base.html" %}
+{% block title %}Estimate returns — Dangote Refinery IPO return estimator{% endblock %}
+
+{% macro lever(id, label, lo, hi, step, value, hint) -%}
+  <div class="lever">
+    <label for="{{ id }}">{{ label }} <output id="{{ id }}-out" for="{{ id }}"></output></label>
+    <input type="range" id="{{ id }}" min="{{ lo }}" max="{{ hi }}" step="{{ step }}" value="{{ value }}" data-default="{{ value }}">
+    {% if hint %}<span class="hint">{{ hint }}</span>{% endif %}
+  </div>
+{%- endmacro %}
+
+{% block content %}
+<h1 style="font-size: clamp(2rem, 4vw, 2.8rem); font-weight: 600;">Estimate your return</h1>
+<p class="lede" style="margin-top: 10px;">
+  Set how you think the refinery will perform and what the market will pay for it.
+  The result compares the projected value of one share, plus dividends, with the ₦525 you'd pay.
+</p>
+
+<div class="calc">
+  <form class="levers" id="levers" aria-label="Model inputs" onsubmit="return false">
+    <fieldset>
+      <legend>The business</legend>
+      {{ lever("rev", "Revenue, $bn a year", limits.revenue_usd_bn[0], limits.revenue_usd_bn[1], 0.4, limits.revenue_usd_bn[2], "At H1 2026 crude prices. H1 2026 ran at $28.8bn a year.") }}
+      {{ lever("margin", "Net margin", limits.net_margin_pct[0], limits.net_margin_pct[1], 0.5, limits.net_margin_pct[2], "At the H1 2026 refining margin. H1 2026: 12.5%.") }}
+      {{ lever("growth", "Profit growth a year", limits.earnings_growth_pct[0], limits.earnings_growth_pct[1], 1, limits.earnings_growth_pct[2], "") }}
+    </fieldset>
+    <fieldset>
+      <legend>The market</legend>
+      {{ lever("pe", "Price-to-earnings when you sell", limits.pe[0], limits.pe[1], 0.5, limits.pe[2], "Dangote Cement: " ~ "%.1f"|format(context.cement_pe) ~ "×") }}
+      {{ lever("fx", "Naira depreciation a year", limits.fx_dep_pct[0], limits.fx_dep_pct[1], 0.5, limits.fx_dep_pct[2], "") }}
+      {% if live and live.fx_trend and live.fx_trend.annualised is not none %}
+        <button type="button" class="reset" id="apply-trend" data-v="{{ '%.1f'|format(live.fx_trend.annualised * 100) }}">
+          Use the observed trend ({{ "%.1f"|format(live.fx_trend.annualised * 100) }}% a year over {{ live.fx_trend.span_days }} days)
+        </button>
+      {% endif %}
+    </fieldset>
+    <fieldset>
+      <legend>You as a shareholder</legend>
+      {{ lever("payout", "Share of profit paid as dividends", limits.payout_pct[0], limits.payout_pct[1], 5, limits.payout_pct[2], "Paid from year 2") }}
+      <div class="lever">
+        <span id="horizon-label" style="display:block; font-size:.9rem; color: var(--ink-2); margin-bottom: 6px;">How long you hold</span>
+        <div class="segmented" role="group" aria-labelledby="horizon-label">
+          <button type="button" data-h="1" aria-pressed="false">1 year</button>
+          <button type="button" data-h="3" aria-pressed="true">3 years</button>
+        </div>
+      </div>
+    </fieldset>
+    {% set has_live = live and (live.available.fx or live.available.crude or live.available.crack) %}
+    <label class="switch" {% if not has_live %}hidden{% endif %}>
+      <input type="checkbox" id="use-live" {% if has_live %}checked{% endif %}>
+      <span>Adjust for today's market: oil price, refining margin and exchange rate</span>
+    </label>
+    <button type="button" class="reset" id="reset">Reset to the base case</button>
+  </form>
+
+  <section aria-live="polite" aria-labelledby="result-label">
+    <div class="result-head">
+      <p class="label" id="result-label">Your return in naira</p>
+      <div class="result-figure" id="headline">—</div>
+      <div class="result-pairs">
+        <div>In US dollars<b id="r-usd">—</b></div>
+        <div>Value per share, with dividends<b id="r-value">—</b></div>
+        <div>Per year<b id="r-annual">—</b></div>
+      </div>
+      <p class="assumption" id="assumption"></p>
+    </div>
+
+    <div class="section-head" style="margin-bottom: 8px;">
+      <h2 style="font-size: 1.35rem;">Against the three anchored scenarios</h2>
+    </div>
+    <div class="table-panel">
+      <table id="scenarios">
+        <thead><tr><th>Scenario</th><th class="num">Value per share</th><th class="num">Year-1 profit</th><th class="num">Return in ₦</th><th class="num">Return in $</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p class="small muted" id="expected-line" style="margin-top: 12px;"></p>
+
+    <div class="section-head" style="margin: 40px 0 10px;">
+      <h2 style="font-size: 1.35rem;">How the return changes with time</h2>
+    </div>
+    <div class="hz-legend">
+      <span><i style="background: var(--gain);"></i>Naira</span>
+      <span><i style="background: var(--gain-soft); box-shadow: inset 0 0 0 1.5px var(--gain);"></i>US dollars</span>
+      <span>Blue is a gain, orange a loss</span>
+    </div>
+    <div class="hz-wrap"><div class="hz" id="hz"></div></div>
+    <p class="error-box" id="error" hidden></p>
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const IDS = ["rev", "margin", "growth", "pe", "fx", "payout"];
+  const FMT = {
+    rev: (v) => "$" + v + "bn", margin: (v) => v + "%", growth: (v) => v + "%",
+    pe: (v) => v + "×", fx: (v) => v + "%", payout: (v) => v + "%",
+  };
+  let horizon = 3, timer = null, seq = 0;
+
+  const pct = (x) => (x >= 0 ? "+" : "−") + Math.abs(x * 100).toFixed(1) + "%";
+  const naira = (x) => "₦" + Math.round(x).toLocaleString("en-NG");
+  const cls = (x) => (x >= 0 ? "gain" : "loss");
+
+  function labels() { IDS.forEach((id) => { $(id + "-out").textContent = FMT[id]($(id).value); }); }
+
+  function schedule() { labels(); clearTimeout(timer); timer = setTimeout(calculate, 120); }
+
+  async function calculate() {
+    const mine = ++seq;
+    try {
+      const res = await fetch("{{ url_for('calculate') }}", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          revenue_usd_bn: +$("rev").value, net_margin: +$("margin").value, pe: +$("pe").value,
+          earnings_growth: +$("growth").value, fx_dep: +$("fx").value, payout: +$("payout").value,
+          horizon, use_live: $("use-live").checked,
+        }),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || "The calculation failed. Check the inputs and try again.");
+      if (mine === seq) render(d);
+      $("error").hidden = true;
+    } catch (err) {
+      $("error").textContent = err.message;
+      $("error").hidden = false;
+    }
+  }
+
+  function render(d) {
+    const c = d.custom;
+    $("headline").textContent = pct(c.roi_ngn);
+    $("headline").className = "result-figure " + cls(c.roi_ngn);
+    $("r-usd").textContent = pct(c.roi_usd);
+    $("r-usd").className = cls(c.roi_usd);
+    $("r-value").textContent = naira(c.total_return_ngn);
+    $("r-annual").textContent = pct(c.roi_ngn_annualised) + " in ₦";
+    $("result-label").textContent = `Your return in naira after ${d.horizon} year${d.horizon > 1 ? "s" : ""}`;
+
+    const L = d.live || {}, bits = [];
+    if (L.crude_factor) bits.push(`revenue × ${L.crude_factor.toFixed(3)} for Brent at $${L.brent}`);
+    if (L.margin_shift !== null && L.margin_shift !== undefined)
+      bits.push(`net margin ${L.margin_shift >= 0 ? "+" : "−"}${Math.abs(L.margin_shift * 100).toFixed(1)} points for a $${L.crack} crack spread`);
+    if (L.fx_now) bits.push(`exit value converted from ₦${L.fx_now.toLocaleString("en-NG")} per dollar`);
+    $("assumption").textContent = L.mode === "live"
+      ? "Adjusted for today's market: " + bits.join("; ") + "."
+      : "Using the offer-date figures: ₦1,312.5 per dollar and the H1 2026 revenue and margin.";
+
+    const rows = Object.entries(d.presets).map(([k, p]) => `
+      <tr><td>${p.label.split(":")[0]}<span class="meta">${p.anchor} (${(p.weight * 100).toFixed(0)}% weight)</span></td>
+        <td class="num">${naira(p.exit_price_ngn)}</td>
+        <td class="num">$${p.ni_year1_usd_bn.toFixed(1)}bn</td>
+        <td class="num ${cls(p.roi_ngn)}">${pct(p.roi_ngn)}</td>
+        <td class="num ${cls(p.roi_usd)}">${pct(p.roi_usd)}</td></tr>`);
+    rows.push(`<tr><td><b>Your inputs</b></td>
+        <td class="num"><b>${naira(c.exit_price_ngn)}</b></td>
+        <td class="num">$${c.ni_year1_usd_bn.toFixed(1)}bn</td>
+        <td class="num ${cls(c.roi_ngn)}">${pct(c.roi_ngn)}</td>
+        <td class="num ${cls(c.roi_usd)}">${pct(c.roi_usd)}</td></tr>`);
+    document.querySelector("#scenarios tbody").innerHTML = rows.join("");
+    const e = d.expected;
+    $("expected-line").textContent =
+      `Probability-weighted across the three scenarios: ${pct(e.roi_ngn)} in naira (${pct(e.roi_ngn_annualised)} a year), ${pct(e.roi_usd)} in US dollars.`;
+    horizonChart(d);
+  }
+
+  // the value sits on the empty side of the zero line, so it always fits
+  function valLabel(v, w, pos) {
+    return pos
+      ? `<div class="val" style="right:calc(50% + 6px)">${pct(v)}</div>`
+      : `<div class="val" style="left:calc(50% + 6px)">${pct(v)}</div>`;
+  }
+
+  function horizonChart(d) {
+    const SERIES = [["bull", "Bull", "Cement-like"], ["base", "Base", "H1 2026 run-rate"], ["bear", "Bear", "Sugar-like"], ["custom", "Your inputs", "As set"]];
+    let max = 0;
+    for (const h of ["1", "2", "3"]) for (const [k] of SERIES) for (const f of ["roi_ngn", "roi_usd"]) max = Math.max(max, Math.abs(d.horizons[h][k][f]));
+    max = max || 1;
+    const cells = [`<div></div><div class="hd">1 year</div><div class="hd">2 years</div><div class="hd">3 years</div>`];
+    for (const [k, name, note] of SERIES) {
+      for (const [f, cur] of [["roi_ngn", "₦"], ["roi_usd", "$"]]) {
+        cells.push(`<div class="row-label"><b>${name} ${cur}</b>${f === "roi_ngn" ? `<span>${note}</span>` : ""}</div>`);
+        for (const h of ["1", "2", "3"]) {
+          const v = d.horizons[h][k][f], w = (Math.abs(v) / max) * 48, pos = v >= 0;
+          cells.push(`<div class="cell" title="${h}-year hold: ${pct(v)} in ${cur === "₦" ? "naira" : "US dollars"}">
+            <div class="zero"></div>
+            <div class="bar ${pos ? "" : "neg"} ${pos ? "gain-fill" : "loss-fill"} ${f === "roi_usd" ? "usd" : ""}" style="${pos ? "left" : "right"}:50%; width:${w.toFixed(2)}%"></div>
+            ${valLabel(v, w, pos)}</div>`);
+        }
+      }
+    }
+    $("hz").innerHTML = cells.join("");
+  }
+
+  IDS.forEach((id) => $(id).addEventListener("input", schedule));
+  $("use-live").addEventListener("change", schedule);
+  document.querySelectorAll(".segmented button").forEach((b) => b.addEventListener("click", () => {
+    horizon = +b.dataset.h;
+    document.querySelectorAll(".segmented button").forEach((x) => x.setAttribute("aria-pressed", x === b ? "true" : "false"));
+    schedule();
+  }));
+  $("reset").addEventListener("click", () => { IDS.forEach((id) => { $(id).value = $(id).dataset.default; }); schedule(); });
+  const trend = $("apply-trend");
+  if (trend) trend.addEventListener("click", () => {
+    const v = Math.min(20, Math.max(0, +trend.dataset.v));
+    $("fx").value = (Math.round(v * 2) / 2).toString();
+    schedule();
+  });
+  labels();
+  calculate();
+})();
+</script>
+{% endblock %}

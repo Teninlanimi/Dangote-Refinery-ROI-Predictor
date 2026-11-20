@@ -126,6 +126,35 @@ def crack_reference(conn):
             "period": f"{REFERENCE_START.isoformat()} to {REFERENCE_END.isoformat()}"}
 
 
+EXPORT_COLUMNS = [
+    ("date", None),
+    ("brent_usd_per_bbl", "brent_usd"),
+    ("petrol_nyh_usd_per_gal", "gasoline_nyh"),
+    ("diesel_nyh_usd_per_gal", "diesel_nyh"),
+    ("crack_321_usd_per_bbl", None),
+    ("ngn_per_usd", "usdngn"),
+]
+
+
+def export_prices(conn) -> list:
+    """Every stored day as one row: all series side by side, plus the 3-2-1 spread.
+    Blank where a source didn't publish that day."""
+    rows = conn.execute(select(T_OBS.c.series, T_OBS.c.observed_on, T_OBS.c.value)).all()
+    by_day = {}
+    for r in rows:
+        by_day.setdefault(r.observed_on, {})[r.series] = r.value
+    out = []
+    for day in sorted(by_day):
+        v = by_day[day]
+        crack = (crack_321(v["brent_usd"], v["gasoline_nyh"], v["diesel_nyh"])
+                 if all(k in v for k in ("brent_usd", "gasoline_nyh", "diesel_nyh")) else None)
+        row = {"date": day.isoformat()}
+        for col, series in EXPORT_COLUMNS[1:]:
+            row[col] = crack if col == "crack_321_usd_per_bbl" else v.get(series)
+        out.append(row)
+    return out
+
+
 def recent_runs(conn, limit: int = 20) -> list:
     rows = conn.execute(select(T_RUNS).order_by(T_RUNS.c.id.desc()).limit(limit)).mappings().all()
     return [dict(r) for r in rows]
