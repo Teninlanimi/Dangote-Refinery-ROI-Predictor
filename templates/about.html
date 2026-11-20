@@ -1,110 +1,87 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>About — Dangote Refinery IPO ROI Predictor</title>
-  <style>
-    :root {
-      --bg: #0f1420; --panel: #1a2233; --panel-edge: #2a3550;
-      --text: #e8edf7; --muted: #8b98b4;
-      --up: #22c55e; --down: #ef4444; --accent: #6366f1;
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
-      background: radial-gradient(1200px 800px at 80% -10%, #1c2742 0%, var(--bg) 55%);
-      color: var(--text); min-height: 100vh; padding: 48px 16px;
-      display: flex; flex-direction: column; align-items: center;
-    }
-    .card { width: 100%; max-width: 760px; background: var(--panel); border: 1px solid var(--panel-edge);
-      border-radius: 16px; padding: 32px; box-shadow: 0 20px 60px rgba(0,0,0,.45); }
-    h1 { font-size: 1.4rem; margin-bottom: 6px; }
-    h2 { font-size: 1rem; margin: 26px 0 10px; color: var(--accent); }
-    p, li { color: var(--muted); font-size: .92rem; line-height: 1.65; margin-bottom: 10px; }
-    b { color: var(--text); }
-    ul { padding-left: 20px; }
-    table { width: 100%; border-collapse: collapse; font-size: .85rem; margin: 10px 0 18px; }
-    th { text-align: left; color: var(--muted); padding: 8px 10px 8px 0; border-bottom: 1px solid var(--panel-edge); font-weight: 600; }
-    td { padding: 9px 10px 9px 0; border-bottom: 1px dashed #232d45; color: var(--muted); }
-    td:first-child { color: var(--text); }
-    .back { color: var(--accent); text-decoration: none; font-size: .85rem; display: inline-block; margin-bottom: 18px; }
-    .sources li { font-size: .82rem; word-break: break-all; }
-    .disclaimer { background: rgba(239,68,68,.1); border: 1px solid rgba(239,68,68,.35);
-      padding: 14px 16px; border-radius: 10px; margin-top: 26px; color: var(--text); font-size: .85rem; }
-    a { color: var(--accent); }
-  </style>
-</head>
-<body>
-  <div class="card">
-    <a class="back" href="/">&larr; Back to the predictor</a>
-    <h1>How this ROI prediction works</h1>
+{% extends "base.html" %}
+{% block title %}Method — Dangote Refinery IPO return estimator{% endblock %}
 
-    <h2>1. The pricing anchor</h2>
-    <p>
-      The Dangote Petroleum Refinery public offer is <b>4.1bn shares at ₦525</b>
-      (SEC-approved, open 14 Sep – 27 Oct 2026, NGX listing expected Nov/Dec 2026), against
-      <b>120.13bn total shares</b> — an implied market cap of about
-      <b>₦63.1tn (~$48bn</b> at the ₦1,312.5/$ the prospectus itself implies<b>)</b>.
-    </p>
-    <p>
-      The refinery only turned profitable in H1 2026 (<b>$1.8bn net income on $14.4bn
-      revenue ≈ 12.5% net margin</b>) after $1.51bn (2024) and $476m (2025) of start-up
-      losses. Annualised, H1 2026 gives roughly <b>$3.6bn of profit a year</b> — so the
-      offer price implies about <b>13.4× annualised profit</b>, almost exactly Dangote
-      Cement's 13.5× P/E. That is the benchmark the offer is implicitly benchmarking itself against.
-    </p>
+{% block content %}
+<div class="prose">
+  <h1 style="font-size: clamp(2rem, 4vw, 2.8rem); font-weight: 600;">How the estimate works</h1>
+  <p class="lede" style="margin-top: 10px;">
+    The model values one share from the refinery's profit and a price-to-earnings multiple,
+    adds dividends, and compares the result with the ₦525 offer price, in naira and in US dollars.
+  </p>
 
-    <h2>2. The three scenarios come from the sister companies</h2>
-    <p>Since the refinery has one half-year of profit history, the scenarios are
-      benchmarked off the two Dangote refineries that <i>do</i> have full listed track records:</p>
+  <h2>The price being tested</h2>
+  <p>
+    The Dangote Petroleum Refinery public offer is <strong>4.1bn shares at ₦525</strong>
+    (SEC-approved, open 14 September to 27 October 2026, NGX listing expected November or December 2026),
+    out of <strong>120.13bn shares</strong> in total. That implies a market value of about
+    <strong>₦63.1tn, or roughly $48bn</strong> at the ₦1,312.5 per dollar the prospectus itself uses.
+  </p>
+  <p>
+    The refinery only became profitable in H1 2026: <strong>$1.8bn net income on $14.4bn revenue</strong>,
+    a 12.5% net margin, after losses of $1.51bn in 2024 and $476m in 2025. Annualised, that is about
+    <strong>$3.6bn of profit a year</strong>, so the offer price is about <strong>13.4 times annualised profit</strong>,
+    almost exactly Dangote Cement's 13.5 times.
+  </p>
+
+  <h2>Three scenarios from the sister companies</h2>
+  <p>
+    With only one profitable half-year to go on, the scenarios borrow from the two Dangote companies
+    that do have long listed track records on the NGX.
+  </p>
+  <div class="table-panel" style="margin: 14px 0 18px;">
     <table>
-      <tr><th>Scenario</th><th>Anchor (FY2025 / 1H2026)</th><th>Rev</th><th>Margin</th><th>P/E</th></tr>
-      <tr><td>Bull</td><td>Dangote Cement: 23.6% net margin, 42.3% ROE, 13.5× P/E</td><td>$32bn</td><td>18%</td><td>14×</td></tr>
-      <tr><td>Base</td><td>Refinery H1 2026 run-rate simply holds</td><td>$28.8bn</td><td>12%</td><td>12×</td></tr>
-      <tr><td>Bear</td><td>Dangote Sugar: −7.7% net margin, ₦175bn finance costs</td><td>$26bn</td><td>5%</td><td>8×</td></tr>
+      <thead><tr><th>Scenario</th><th>Anchored on</th><th class="num">Revenue</th><th class="num">Margin</th><th class="num">P/E</th></tr></thead>
+      <tbody>
+        <tr><td>Bull</td><td>Dangote Cement FY2025: 23.6% net margin, 42.3% return on equity, 13.5× P/E</td><td class="num">$32bn</td><td class="num">18%</td><td class="num">14×</td></tr>
+        <tr><td>Base</td><td>The refinery's H1 2026 run-rate holds</td><td class="num">$28.8bn</td><td class="num">12%</td><td class="num">12×</td></tr>
+        <tr><td>Bear</td><td>Dangote Sugar FY2025: −7.7% net margin, ₦175bn finance costs</td><td class="num">$26bn</td><td class="num">5%</td><td class="num">8×</td></tr>
+      </tbody>
     </table>
-    <p>Every Dangote business that IPO'd in Nigeria has ended up somewhere on that
-      cement↔sugar spectrum; the point of the model is to price both ends.</p>
-
-    <h2>3. The maths</h2>
-    <ul>
-      <li><b>Fair value</b> = net income × P/E ÷ 120.13bn shares.</li>
-      <li><b>Growth</b>: earnings compound at the scenario rate (capacity ramp toward the 1.4m bpd 2029 target, petchem).</li>
-      <li><b>Dividends</b>: from year 2, payout % of profit ("dividends in dollars" has been promised, not yet signed off).</li>
-      <li><b>Naira</b>: exit price converts at a depreciating rate (default −8%/yr). ROI is shown in naira <i>and</i> USD.</li>
-      <li><b>Expected ROI</b> = probability-weighted across the three scenarios (25% / 50% / 25%).</li>
-    </ul>
-
-    <h2>4. What the numbers said at launch</h2>
-    <p>
-      On the 3-year horizon with defaults: bull ≈ <b>+208%</b> (₦) / <b>+145%</b> (USD),
-      base ≈ <b>+42%</b> (₦) / <b>+13%</b> (USD), bear ≈ <b>−70%</b> (₦) / <b>−76%</b> (USD),
-      probability-weighted ≈ <b>+55% (₦) / +23% (USD)</b>. Your own levers may differ — that is the point of the sliders.
-    </p>
-
-    <h2>5. Honest limits</h2>
-    <ul>
-      <li>No greenshoe (up to 30% extra shares) or lock-up-expiry dilution is modelled.</li>
-      <li>Refinery taxes, crude-supply politics (NNPC's stake), and pet-chem splits are not separated.</li>
-      <li>The margin/P/E ladder is a deliberately simple linear model — real markets re-rate fast.</li>
-      <li>All inputs are public-reporting figures as of 13 Oct 2026; check <a href="https://ipo.dangote.com/">ipo.dangote.com</a> and the prospectus for authoritative numbers.</li>
-    </ul>
-
-    <div class="disclaimer">
-      ⚠️ This is an <b>educational scenario model, not investment advice</b>. Equities can and do
-      lose money; an IPO price is not a fair value. Do your own research (and read the prospectus)
-      before investing in anything.
-    </div>
-
-    <h2>Sources</h2>
-    <ul class="sources">
-      {% for group, items in sources.items() %}
-        {% for name, url in items.items() %}
-          <li><a href="{{ url }}" target="_blank" rel="noopener">{{ name }}</a></li>
-        {% endfor %}
-      {% endfor %}
-    </ul>
   </div>
-</body>
-</html>
+  <p>The expected return weights them 25%, 50% and 25%.</p>
+
+  <h2>The calculation</h2>
+  <ul>
+    <li><strong>Value per share</strong> = net income × P/E ÷ 120.13bn shares.</li>
+    <li><strong>Growth:</strong> profit compounds at the scenario rate, reflecting the ramp-up toward 1.4m barrels a day by 2029 and petrochemicals.</li>
+    <li><strong>Dividends:</strong> from year 2, a share of profit is paid out. Dividends in dollars have been promised but not yet formally approved.</li>
+    <li><strong>Naira:</strong> the exit value is converted at a depreciating exchange rate (8% a year by default), so the return is shown in naira and in US dollars.</li>
+  </ul>
+
+  <h2>How today's market feeds in</h2>
+  <p>When "Adjust for today's market" is on, three live inputs change the scenarios:</p>
+  <ul>
+    <li><strong>Brent crude → revenue.</strong> Revenue is scaled by the latest Brent price divided by its H1 2026 average, because product prices follow crude.</li>
+    <li><strong>Crack spread → net margin.</strong> A refinery earns the gap between what it sells products for and what it pays for crude. The model tracks the 3-2-1 crack spread: two barrels of petrol plus one of diesel, minus three barrels of crude, divided by three. Gross profit ($5.2bn a year in H1 2026) moves with the spread; the other $1.6bn of costs stay fixed. Dearer crude with an unchanged spread therefore lowers the margin and leaves profit roughly flat.</li>
+    <li><strong>Exchange rate → exit value.</strong> The future exchange rate starts from today's rate instead of the offer-date rate. Your ₦525 entry cost doesn't change.</li>
+  </ul>
+  <p>Each live adjustment is shown in words under the result, and the <a href="{{ url_for('status') }}">data pipeline page</a> shows where every number came from.</p>
+
+  <h2>What the model leaves out</h2>
+  <ul>
+    <li>The greenshoe (up to 30% more shares) and dilution when the private placement lock-up ends.</li>
+    <li>Taxes, crude-supply arrangements with NNPC, and the petrochemicals business as a separate line.</li>
+    <li>US New York Harbor prices stand in for the West African market, and the 3-2-1 mix is not Dangote's exact product slate.</li>
+    <li>Government pressure on pump prices, which affects how much of the spread the refinery keeps.</li>
+    <li>The free exchange-rate feed is a market mid-rate, not the official or parallel rate.</li>
+  </ul>
+
+  <div class="notice">
+    <p><strong>This is an educational scenario model, not investment advice.</strong>
+    An offer price is not a fair value, and shares can lose money. Read the prospectus and do your own research before you invest.</p>
+  </div>
+
+  <h2>Sources</h2>
+  <ul class="small">
+    {% for group, items in sources.items() %}
+      {% for name, url in items.items() %}
+        <li><a href="{{ url }}" target="_blank" rel="noopener">{{ name }}</a></li>
+      {% endfor %}
+    {% endfor %}
+    <li><a href="https://fred.stlouisfed.org/series/DCOILBRENTEU" target="_blank" rel="noopener">Brent crude spot price (US EIA via FRED, DCOILBRENTEU)</a></li>
+    <li><a href="https://fred.stlouisfed.org/series/DGASNYH" target="_blank" rel="noopener">New York Harbor conventional petrol (US EIA via FRED, DGASNYH)</a></li>
+    <li><a href="https://fred.stlouisfed.org/series/DDFUELNYH" target="_blank" rel="noopener">New York Harbor ultra-low-sulfur diesel (US EIA via FRED, DDFUELNYH)</a></li>
+    <li><a href="https://www.exchangerate-api.com" target="_blank" rel="noopener">Rates By Exchange Rate API (naira per dollar)</a></li>
+  </ul>
+</div>
+{% endblock %}

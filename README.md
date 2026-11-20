@@ -8,8 +8,9 @@ refinery's own H1 2026 results.
 
 **Now a production data product:** crude oil, petrol and diesel prices and
 the naira exchange rate are pulled on a schedule, validated, stored in PostgreSQL, and fed into
-the model; the whole stack runs in Docker on AWS
-([deploy guide](deploy/AWS_DEPLOY.md)).
+the model; the site runs free on Render + Neon with the pipeline on GitHub Actions
+([free deploy](deploy/FREE_DEPLOY.md)), and the full stack is Docker-ready for
+AWS ([AWS guide](deploy/AWS_DEPLOY.md)).
 
 Companion project to [`Fake-News-`](https://github.com/Teninlanimi/Fake-News-)
 (same structure: transparent Python engine + Flask dashboard + About page).
@@ -104,11 +105,23 @@ check is visible at `/status`.
 
 | Endpoint | What it returns |
 |---|---|
-| `/` | dashboard (live panel + levers) |
-| `/status` | pipeline runs and data-check outcomes |
+| `/` | Market: the offer in one sentence, today's oil prices, refining margin and naira rate, price history charts, and what they change in the model |
+| `/calculator` | Estimate returns: levers, your result against the three scenarios, return by holding period |
+| `/status` | Data pipeline: every run and data-check outcome |
+| `/about` | Method: how the estimate is built and what it leaves out |
+| `/download/prices.csv` | every stored day: Brent, petrol, diesel, 3-2-1 crack spread, naira rate |
+| `/download/pipeline-runs.csv`, `/download/data-checks.csv` | the full pipeline and data-check log |
 | `/api/market?days=180` | latest values + history as JSON |
 | `/health` | app + database + data freshness (used by Docker) |
 | `POST /admin/ingest` | run the pipeline now (needs `X-Ingest-Token`) |
+
+**Usage limits** (per visitor address, via Flask-Limiter): CSV downloads 30 an
+hour, `/api/market` 60 an hour, the calculator 300 a minute, `/admin/ingest` 5 an
+hour. Over the limit you get HTTP 429 with a plain message. Counters are kept in
+each server process's memory, which is enough to stop one visitor hammering a
+free server; a multi-server deployment would point `storage_uri` at Redis.
+Behind a proxy (Render, Caddy) set `TRUST_PROXY=1` so limits apply to the real
+visitor address; it's already set in `render.yaml` and `docker-compose.yml`.
 
 ## Run it locally
 
@@ -117,7 +130,7 @@ py -m pip install -r requirements-dev.txt
 copy .env.example .env      :: then paste your free FRED_API_KEY into .env
 py -m pipeline.ingest       :: pull crude + FX into instance\market.db (or run_ingest.bat)
 py app.py                   :: dashboard at http://127.0.0.1:5000 (or run_app.bat)
-py -m pytest -q             :: 24 tests: checks, sources, pipeline, crack spread, app
+py -m pytest -q             :: 33 tests: checks, sources, pipeline, crack spread, downloads, limits, app
 py model.py                 :: offline scenario report + sensitivity grid -> outputs/
 ```
 
@@ -127,9 +140,14 @@ Locally the database is a SQLite file; in production it is PostgreSQL. Only
 
 ## Deploy
 
-`docker compose up -d --build` starts PostgreSQL, the web app, the scheduler
-and Caddy (HTTPS). Step-by-step AWS EC2 instructions, including costs, HTTPS
-and backups: **[deploy/AWS_DEPLOY.md](deploy/AWS_DEPLOY.md)**. CI (GitHub
+Two documented routes, same code:
+
+- **Free, always on (live site):** Neon Postgres + GitHub Actions running the
+  pipeline twice a day + Render hosting the website.
+  **[deploy/FREE_DEPLOY.md](deploy/FREE_DEPLOY.md)**
+- **AWS (Docker):** `docker compose up -d --build` starts PostgreSQL, the web
+  app, the scheduler and Caddy (HTTPS) on one EC2 server.
+  **[deploy/AWS_DEPLOY.md](deploy/AWS_DEPLOY.md)** CI (GitHub
 Actions) runs the tests on SQLite and PostgreSQL and builds the Docker image on
 every push.
 
@@ -144,7 +162,8 @@ scenario across 1-, 2- and 3-year holds** on your current levers.
 ```
 data/company_data.py    all verified facts + source URLs (the single source of truth)
 model.py                scenario engine, sensitivity grid, markdown report
-app.py + templates/     Flask dashboard, /status page, JSON API, health check
+app.py + templates/     Flask app: Market, Estimate returns, Data pipeline, Method pages; JSON API; health check
+static/                 stylesheet, small SVG chart script, self-hosted Archivo font (SIL OFL)
 config.py               settings from environment variables / .env
 pipeline/
   sources.py            fetchers: FRED (Brent, petrol, diesel), open.er-api (USD/NGN)
@@ -154,7 +173,9 @@ pipeline/
   market.py             read helpers: latest, history, crude factor, crack spread, FX trend
   db.py                 SQLAlchemy tables (SQLite locally, PostgreSQL in prod)
 tests/                  pytest suite (no network needed)
-Dockerfile, docker-compose.yml, deploy/   production stack + AWS guide
+Dockerfile, docker-compose.yml, deploy/   Docker stack, free + AWS deploy guides
+.github/workflows/      ci.yml (tests + Docker build), ingest.yml (scheduled pipeline)
+render.yaml             Render blueprint for the free web service
 outputs/                generated: scenario_report.md, sensitivity_pe_margin.csv
 ```
 

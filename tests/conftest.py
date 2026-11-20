@@ -58,3 +58,11 @@ def fake_fetchers():
         return [o for o in flat_series("diesel_nyh", 2.50) if o.observed_on >= since]
 
     return {"brent_usd": brent, "gasoline_nyh": gasoline, "diesel_nyh": diesel, "usdngn": fx}
+
+
+@pytest.fixture(autouse=True)
+def _reset_usage_limits():
+    """Each test starts with fresh usage-limit counters."""
+    if "app" in sys.modules:
+        sys.modules["app"].limiter.reset()
+    yield

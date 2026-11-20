@@ -1,8 +1,19 @@
+# Render Blueprint - free web service for the dashboard.
+# The database lives on Neon (free, never expires) and the data pipeline runs
+# on GitHub Actions (.github/workflows/ingest.yml). See deploy/FREE_DEPLOY.md.
 services:
   - type: web
     name: dangote-refinery-roi-predictor
     runtime: python
     plan: free
+    region: frankfurt   # match your Neon region (Frankfurt is closest to Lagos)
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app
+    startCommand: gunicorn --workers 2 --bind 0.0.0.0:$PORT app:app
     healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.7"
+      - key: TRUST_PROXY
+        value: "1"        # Render's proxy sets X-Forwarded-For; needed for per-visitor usage limits
+      - key: DATABASE_URL
+        sync: false        # paste your Neon connection string in the Render dashboard
