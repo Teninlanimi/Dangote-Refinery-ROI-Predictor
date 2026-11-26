@@ -133,7 +133,7 @@ py -m pip install -r requirements-dev.txt
 copy .env.example .env      :: then paste your free FRED_API_KEY into .env
 py -m pipeline.ingest       :: pull crude + FX into instance\market.db (or run_ingest.bat)
 py app.py                   :: dashboard at http://127.0.0.1:5000 (or run_app.bat)
-py -m pytest -q             :: 33 tests: checks, sources, pipeline, crack spread, downloads, limits, app
+py -m pytest -q             :: 35 tests: checks, sources, pipeline, crack spread, model floor, downloads, limits, app
 py model.py                 :: offline scenario report + sensitivity grid -> outputs/
 ```
 
