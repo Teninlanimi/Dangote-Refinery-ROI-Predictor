@@ -6,9 +6,11 @@ NGX, offer open 14 Sep – 27 Oct 2026) — built from the audited FY2025 number
 of its sister companies, **Dangote Cement** and **Dangote Sugar**, plus the
 refinery's own H1 2026 results.
 
+**Live site: [dangote-refinery-roi-predictor.vercel.app](https://dangote-refinery-roi-predictor.vercel.app)**
+
 **Now a production data product:** crude oil, petrol and diesel prices and
 the naira exchange rate are pulled on a schedule, validated, stored in PostgreSQL, and fed into
-the model; the site runs free on Render + Neon with the pipeline on GitHub Actions
+the model; the site runs free on Vercel + Neon with the pipeline on GitHub Actions
 ([free deploy](deploy/FREE_DEPLOY.md)), and the full stack is Docker-ready for
 AWS ([AWS guide](deploy/AWS_DEPLOY.md)).
 
@@ -120,8 +122,9 @@ hour, `/api/market` 60 an hour, the calculator 300 a minute, `/admin/ingest` 5 a
 hour. Over the limit you get HTTP 429 with a plain message. Counters are kept in
 each server process's memory, which is enough to stop one visitor hammering a
 free server; a multi-server deployment would point `storage_uri` at Redis.
-Behind a proxy (Render, Caddy) set `TRUST_PROXY=1` so limits apply to the real
-visitor address; it's already set in `render.yaml` and `docker-compose.yml`.
+Behind a proxy (Vercel, Render, Caddy) set `TRUST_PROXY=1` so limits apply to the
+real visitor address; it's set in the Vercel project settings, `render.yaml` and
+`docker-compose.yml`.
 
 ## Run it locally
 
@@ -142,8 +145,9 @@ Locally the database is a SQLite file; in production it is PostgreSQL. Only
 
 Two documented routes, same code:
 
-- **Free, always on (live site):** Neon Postgres + GitHub Actions running the
-  pipeline twice a day + Render hosting the website.
+- **Free, always on ([live site](https://dangote-refinery-roi-predictor.vercel.app)):**
+  Neon Postgres + GitHub Actions running the pipeline twice a day + Vercel
+  hosting the website (Flask runs as a Vercel Function, no config file needed).
   **[deploy/FREE_DEPLOY.md](deploy/FREE_DEPLOY.md)**
 - **AWS (Docker):** `docker compose up -d --build` starts PostgreSQL, the web
   app, the scheduler and Caddy (HTTPS) on one EC2 server.
@@ -175,7 +179,7 @@ pipeline/
 tests/                  pytest suite (no network needed)
 Dockerfile, docker-compose.yml, deploy/   Docker stack, free + AWS deploy guides
 .github/workflows/      ci.yml (tests + Docker build), ingest.yml (scheduled pipeline)
-render.yaml             Render blueprint for the free web service
+render.yaml             Render blueprint (alternative host; Render asks for a card to verify)
 outputs/                generated: scenario_report.md, sensitivity_pe_margin.csv
 ```
 
