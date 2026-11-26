@@ -200,8 +200,8 @@ def run_calculation(payload, snap=None):
         "expected": {
             "roi_ngn": round(expected_ngn, 4),
             "roi_usd": round(expected_usd, 4),
-            "roi_ngn_annualised": round((1 + expected_ngn) ** (1 / horizon) - 1, 4),
-            "roi_usd_annualised": round((1 + expected_usd) ** (1 / horizon) - 1, 4),
+            "roi_ngn_annualised": round(model.annualise(expected_ngn, horizon), 4),
+            "roi_usd_annualised": round(model.annualise(expected_usd, horizon), 4),
         },
         "context": static_context(),
         "live": live,

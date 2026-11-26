@@ -102,13 +102,16 @@ def fair_price(scenario: dict, horizon: int, fx: float, fx_dep: float,
     div_usd = 0.0
     for y in range(2, horizon + 1):
         ni_y = ni_1 * (1 + scenario["earnings_growth"]) ** (y - 1)
-        div_usd += ni_y * scenario["payout"] / shares
+        div_usd += max(ni_y, 0.0) * scenario["payout"] / shares     # no dividends out of losses
 
     if horizon == 1:
         price_exit = price_1
     else:
         ni_h = ni_1 * (1 + scenario["earnings_growth"]) ** (horizon - 1)
         price_exit = ni_h * scenario["pe"] / shares
+    # A share can't be worth less than zero (limited liability): a loss-making
+    # scenario values the equity at nil rather than a negative price.
+    price_exit = max(price_exit, 0.0)
 
     return {
         "ni_year1_usd_bn": ni_1,
@@ -120,6 +123,13 @@ def fair_price(scenario: dict, horizon: int, fx: float, fx_dep: float,
         "dividends_ngn_per_share": div_usd * fx_exit,
         "net_income_h_usd_bn": ni_1 * (1 + scenario["earnings_growth"]) ** max(horizon - 1, 0),
     }
+
+
+def annualise(total_return: float, horizon: int) -> float:
+    """Compound annual rate for a total return; a total loss stays -100%."""
+    if 1 + total_return <= 0:
+        return -1.0
+    return (1 + total_return) ** (1 / horizon) - 1
 
 
 def roi(scenario: dict, horizon: int, fx: float, fx_dep: float,
@@ -135,8 +145,8 @@ def roi(scenario: dict, horizon: int, fx: float, fx_dep: float,
     return {
         "roi_ngn": roi_ngn,
         "roi_usd": roi_usd,
-        "roi_ngn_annualised": (1 + roi_ngn) ** (1 / horizon) - 1,
-        "roi_usd_annualised": (1 + roi_usd) ** (1 / horizon) - 1,
+        "roi_ngn_annualised": annualise(roi_ngn, horizon),
+        "roi_usd_annualised": annualise(roi_usd, horizon),
         "total_return_ngn": exit_ngn + f["dividends_ngn_per_share"],
         "exit_price_usd": f["fair_price_usd"],
         "exit_price_ngn": f["fair_price_ngn"],
@@ -208,8 +218,8 @@ def expected_roi(horizon: int, fx: float, fx_dep: float, fx_now: float = None,
         "rois": rois,
         "expected_ngn": exp_ngn,
         "expected_usd": exp_usd,
-        "expected_ngn_annualised": (1 + exp_ngn) ** (1 / horizon) - 1,
-        "expected_usd_annualised": (1 + exp_usd) ** (1 / horizon) - 1,
+        "expected_ngn_annualised": annualise(exp_ngn, horizon),
+        "expected_usd_annualised": annualise(exp_usd, horizon),
     }
 
 
